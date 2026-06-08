@@ -14,6 +14,12 @@ Resources:
     Properties:
       Handler: com.vswitch.watermeter.StreamLambdaHandler::handleRequest
       CodeUri: target/water-meter-service-0.0.1-SNAPSHOT-aws.jar
+      Environment:
+        Variables:
+          TEST_TABLE_NAME: TestTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: TestTable
       Events:
         ProxyApi:
           Type: Api

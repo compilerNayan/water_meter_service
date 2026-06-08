@@ -2,11 +2,19 @@
 
 Spring Boot REST API packaged for AWS Lambda behind API Gateway.
 
-## Endpoint
+## Endpoints
 
-| Method | Path | Response |
-|--------|------|----------|
-| GET | `/testlamda` | `Hello world` |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/testlamda` | Returns `Hello world` |
+| PUT | `/test/{testId}` | Stores `testId` in DynamoDB `TestTable` (partition key `test_id`) |
+
+Example after deploy:
+
+```bash
+curl -X PUT "https://<api-id>.execute-api.ap-south-1.amazonaws.com/Prod/test/my-value-123"
+# {"test_id":"my-value-123","status":"stored"}
+```
 
 ## Prerequisites
 
