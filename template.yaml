@@ -4,8 +4,8 @@ Description: Water Meter Service - Spring Boot on AWS Lambda
 
 Globals:
   Function:
-    Timeout: 30
-    MemorySize: 512
+    Timeout: 29
+    MemorySize: 2048
     Runtime: java17
 
 Resources:
