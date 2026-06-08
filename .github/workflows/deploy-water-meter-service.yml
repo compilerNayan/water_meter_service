@@ -6,7 +6,7 @@ name: Deploy Water Meter Service
 
 on:
   push:
-    branches: [main]
+    branches: [master, main]
     paths:
       - 'src/**'
       - 'pom.xml'
