@@ -9,6 +9,30 @@ Globals:
     Runtime: java17
 
 Resources:
+  WaterMeterUsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: WaterMeterUsers
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+
+  WaterMeterTenantsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: WaterMeterTenants
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: tenantId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: tenantId
+          KeyType: HASH
+
   WaterMeterServiceFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -17,9 +41,16 @@ Resources:
       Environment:
         Variables:
           TEST_TABLE_NAME: TestTable
+          USERS_TABLE_NAME: WaterMeterUsers
+          TENANTS_TABLE_NAME: WaterMeterTenants
+          COGNITO_ISSUER_URI: https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_vm19Xv95r
       Policies:
         - DynamoDBCrudPolicy:
             TableName: TestTable
+        - DynamoDBCrudPolicy:
+            TableName: WaterMeterUsers
+        - DynamoDBCrudPolicy:
+            TableName: WaterMeterTenants
       Events:
         ProxyApi:
           Type: Api
@@ -35,4 +66,4 @@ Resources:
 Outputs:
   ApiUrl:
     Description: API Gateway endpoint URL
-    Value: !Sub 'https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/testlamda'
+    Value: !Sub 'https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/'

@@ -4,11 +4,17 @@ Spring Boot REST API packaged for AWS Lambda behind API Gateway.
 
 ## Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/testlamda` | Returns `Hello world` |
-| GET | `/test` | Returns all stored `test_id` values as a JSON array |
-| PUT | `/test/{testId}` | Stores `testId` in DynamoDB `TestTable` (partition key `test_id`) |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/testlamda` | No | Returns `Hello world` |
+| GET | `/test` | No | Returns all stored `test_id` values as a JSON array |
+| PUT | `/test/{testId}` | No | Stores `testId` in DynamoDB `TestTable` |
+| POST | `/users` | Cognito JWT | Register user + create tenant (idempotent) |
+| GET | `/users/me` | Cognito JWT | Returns authenticated user profile from DynamoDB |
+
+**DynamoDB tables:** `WaterMeterUsers` (PK `userId`), `WaterMeterTenants` (PK `tenantId`)
+
+**Cognito issuer:** `https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_vm19Xv95r`
 
 Example after deploy:
 
