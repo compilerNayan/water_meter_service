@@ -1,0 +1,72 @@
+# Builds and deploys on GitHub's servers (no Maven/Java needed on your laptop).
+#
+# Repo root = water_meter_service (this folder).
+
+name: Deploy Water Meter Service
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'pom.xml'
+      - 'template.yaml'
+      - '.github/workflows/deploy-water-meter-service.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  STACK_NAME: water-meter-service
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Build JAR (Maven runs on GitHub, not your laptop)
+        run: mvn -B clean package
+
+      - name: Verify deployment artifact exists
+        run: test -f target/water-meter-service-0.0.1-SNAPSHOT-aws.jar
+
+      - name: Set up SAM CLI
+        uses: aws-actions/setup-sam@v2
+
+      - name: Configure AWS credentials (OIDC — no keys stored in GitHub)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::748359027058:role/github-actions-water-meter-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to AWS Lambda + API Gateway
+        run: |
+          sam deploy \
+            --template-file template.yaml \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --capabilities CAPABILITY_IAM \
+            --resolve-s3 \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --region "${{ env.AWS_REGION }}"
+
+      - name: Print API URL
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "${{ env.STACK_NAME }}" \
+            --region "${{ env.AWS_REGION }}" \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" \
+            --output text
