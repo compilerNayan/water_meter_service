@@ -30,7 +30,7 @@ public class UserService {
         this.tableName = tableName;
     }
 
-    Optional<UserRecord> findById(String userId) {
+    public Optional<UserRecord> findById(String userId) {
         var response =
                 dynamoDbClient.getItem(
                         GetItemRequest.builder()

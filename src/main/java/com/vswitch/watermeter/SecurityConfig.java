@@ -22,7 +22,7 @@ public class SecurityConfig {
                         auth ->
                                 auth.requestMatchers("/test/**", "/testlamda")
                                         .permitAll()
-                                        .requestMatchers("/users/**")
+                                        .requestMatchers("/users/**", "/tenants/**")
                                         .authenticated()
                                         .anyRequest()
                                         .permitAll())
