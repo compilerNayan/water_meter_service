@@ -43,6 +43,11 @@ jobs:
       - name: Verify deployment artifact exists
         run: test -f target/water-meter-service-0.0.1-SNAPSHOT-aws.jar
 
+      - name: Verify handler class is at JAR root (Lambda requirement)
+        run: |
+          jar tf target/water-meter-service-0.0.1-SNAPSHOT-aws.jar \
+            | grep -q 'com/vswitch/watermeter/StreamLambdaHandler.class'
+
       - name: Set up SAM CLI
         uses: aws-actions/setup-sam@v2
 
