@@ -102,7 +102,7 @@ class UnitControllerTest {
     }
 
     @Test
-    void enrollmentStatusPlaceholderReturnsEnrolled() throws Exception {
+    void enrollmentStatusReturnsEnrolledWhenComplete() throws Exception {
         when(unitService.getEnrollmentStatus("k3m9x2a", "WM000001"))
                 .thenReturn(new EnrollmentStatusResponse(true, UnitRecord.STATUS_ENROLLED));
 
@@ -112,5 +112,18 @@ class UnitControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enrolled").value(true))
                 .andExpect(jsonPath("$.status").value("enrolled"));
+    }
+
+    @Test
+    void enrollmentStatusReturnsPendingWhileWaiting() throws Exception {
+        when(unitService.getEnrollmentStatus("k3m9x2a", "WM000001"))
+                .thenReturn(new EnrollmentStatusResponse(false, UnitRecord.STATUS_PENDING));
+
+        mockMvc.perform(
+                        get("/tenants/k3m9x2a/devices/WM000001/enrollment-status")
+                                .header("Authorization", "Bearer test-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enrolled").value(false))
+                .andExpect(jsonPath("$.status").value("pending"));
     }
 }

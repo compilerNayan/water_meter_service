@@ -1,5 +1,6 @@
 package com.vswitch.watermeter;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -113,14 +114,61 @@ public class UnitService {
     }
 
     EnrollmentStatusResponse getEnrollmentStatus(String tenantId, String deviceId) {
-        findByTenantAndDeviceId(tenantId, deviceId.trim())
-                .orElseThrow(
-                        () ->
-                                new ResponseStatusException(
-                                        HttpStatus.NOT_FOUND, "Unit not found"));
+        UnitRecord unit =
+                findByTenantAndDeviceId(tenantId, deviceId.trim())
+                        .orElseThrow(
+                                () ->
+                                        new ResponseStatusException(
+                                                HttpStatus.NOT_FOUND, "Unit not found"));
 
-        // Placeholder until AWS IoT Core enrollment is wired.
-        return new EnrollmentStatusResponse(true, UnitRecord.STATUS_ENROLLED);
+        boolean enrolled = UnitRecord.STATUS_ENROLLED.equals(unit.enrollmentStatus());
+        return new EnrollmentStatusResponse(enrolled, unit.enrollmentStatus());
+    }
+
+    /**
+     * Simulates device lifecycle/enrolled MQTT message after the configured delay.
+     * Called by the mock telemetry scheduler until real IoT enrollment is wired.
+     */
+    UnitRecord promoteEnrollmentIfReady(UnitRecord unit, Duration delay) {
+        if (UnitRecord.STATUS_ENROLLED.equals(unit.enrollmentStatus())) {
+            return unit;
+        }
+        if (unit.createdAt() == null || unit.createdAt().isBlank()) {
+            return unit;
+        }
+        Instant created = Instant.parse(unit.createdAt());
+        if (Duration.between(created, Instant.now()).compareTo(delay) < 0) {
+            return unit;
+        }
+        return markEnrolled(unit);
+    }
+
+    UnitRecord markEnrolled(UnitRecord unit) {
+        if (UnitRecord.STATUS_ENROLLED.equals(unit.enrollmentStatus())) {
+            return unit;
+        }
+        String now = Instant.now().toString();
+        UnitRecord updated =
+                new UnitRecord(
+                        unit.unitId(),
+                        unit.tenantId(),
+                        unit.deviceId(),
+                        unit.name(),
+                        unit.flatNumber(),
+                        unit.floor(),
+                        unit.block(),
+                        unit.wing(),
+                        unit.residentName(),
+                        unit.phoneNumber(),
+                        unit.notes(),
+                        UnitRecord.STATUS_ENROLLED,
+                        unit.unitInviteCode(),
+                        unit.createdAt(),
+                        now);
+
+        dynamoDbClient.putItem(
+                PutItemRequest.builder().tableName(tableName).item(updated.toItem()).build());
+        return updated;
     }
 
     Optional<UnitRecord> findByTenantAndDeviceId(String tenantId, String deviceId) {
