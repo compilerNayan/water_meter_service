@@ -62,7 +62,7 @@ class TelemetryIngestionServiceTest {
                         "NORMAL",
                         now);
         DeviceConfigRecord config =
-                DeviceConfigRecord.defaults("WM000001", "k3m9x2a", now, 80, 80);
+                DeviceConfigRecord.defaults("WM000001", "k3m9x2a", now, 80.0, 80.0);
 
         when(dynamoDbClient.getItem(any(GetItemRequest.class)))
                 .thenAnswer(
@@ -108,7 +108,7 @@ class TelemetryIngestionServiceTest {
                         "NORMAL",
                         now);
         DeviceConfigRecord config =
-                DeviceConfigRecord.defaults("WM000001", "k3m9x2a", now, 0, 80);
+                DeviceConfigRecord.defaults("WM000001", "k3m9x2a", now, 0.0, 80.0);
 
         when(dynamoDbClient.getItem(any(GetItemRequest.class)))
                 .thenAnswer(

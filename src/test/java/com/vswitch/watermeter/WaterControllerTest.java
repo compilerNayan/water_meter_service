@@ -160,7 +160,7 @@ class WaterControllerTest {
                                 "UTC",
                                 List.of(new QuotaStepDto(300, "reduce_pressure", 20.0)),
                                 new QuotaStatusResponse(
-                                        "2026-06-09", 120, -1, null, 380, 300)));
+                                        "2026-06-09", 120, -1, null, 380, 300.0)));
 
         mockMvc.perform(
                         get("/tenants/k3m9x2a/devices/WM000001/water/quota")
@@ -186,7 +186,7 @@ class WaterControllerTest {
                                 "UTC",
                                 List.of(new QuotaStepDto(400, "turn_off", null)),
                                 new QuotaStatusResponse(
-                                        "2026-06-09", 50, -1, null, 550, 400)));
+                                        "2026-06-09", 50, -1, null, 550, 400.0)));
 
         mockMvc.perform(
                         put("/tenants/k3m9x2a/devices/WM000001/water/quota")

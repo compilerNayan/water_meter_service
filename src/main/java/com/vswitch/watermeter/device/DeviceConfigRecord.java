@@ -15,11 +15,11 @@ public record DeviceConfigRecord(
         double lastUserPressurePercent,
         String updatedAt) {
 
-    static DeviceConfigRecord defaults(String deviceId, String tenantId, String now) {
+    public static DeviceConfigRecord defaults(String deviceId, String tenantId, String now) {
         return defaults(deviceId, tenantId, now, 100, 100);
     }
 
-    static DeviceConfigRecord defaults(
+    public static DeviceConfigRecord defaults(
             String deviceId,
             String tenantId,
             String now,

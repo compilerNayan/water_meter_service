@@ -22,7 +22,7 @@ public record UnitRecord(
         String updatedAt) {
 
     static final String STATUS_PENDING = "pending";
-    static final String STATUS_ENROLLED = "enrolled";
+    public static final String STATUS_ENROLLED = "enrolled";
 
     static UnitRecord fromItem(Map<String, AttributeValue> item) {
         return new UnitRecord(
