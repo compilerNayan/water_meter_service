@@ -27,6 +27,7 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 public class WaterReadingService {
 
     private static final Duration OFFLINE_THRESHOLD = Duration.ofMinutes(15);
+    private static final int MAX_MINUTE_RECORDS_PER_QUERY = 4_000;
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     private final DynamoDbClient dynamoDbClient;
@@ -71,11 +72,7 @@ public class WaterReadingService {
 
         Duration range = Duration.between(from, to);
         Instant prevFrom = from.minus(range);
-        List<MinuteUsageRecord> prevMinutes = queryMinutes(deviceId, prevFrom, from);
-        List<UsageDataPointResponse> prevPoints =
-                aggregateMinutes(prevMinutes, prevFrom, from, g, timezone);
-        double prevTotal =
-                prevPoints.stream().mapToDouble(UsageDataPointResponse::volumeLiters).sum();
+        double prevTotal = sumUsageTotal(deviceId, prevFrom, from, g, timezone);
         double deltaPercent =
                 prevTotal <= 0 ? 0 : ((total - prevTotal) / prevTotal) * 100.0;
 
@@ -118,7 +115,7 @@ public class WaterReadingService {
 
     HourlyPatternResponse getHourlyPattern(
             String deviceId, LocalDate from, LocalDate to, String timezone) {
-        ZoneId zone = ZoneId.of(timezone);
+        ZoneId zone = safeZone(timezone);
         Instant start = from.atStartOfDay(zone).toInstant();
         Instant end = to.plusDays(1).atStartOfDay(zone).toInstant();
         List<MinuteUsageRecord> minutes = queryMinutes(deviceId, start, end);
@@ -196,31 +193,97 @@ public class WaterReadingService {
                 effective);
     }
 
+    private double sumUsageTotal(
+            String deviceId,
+            Instant from,
+            Instant to,
+            UsageGranularity granularity,
+            String timezone) {
+        if (!Duration.between(from, to).isNegative()
+                && Duration.between(from, to).compareTo(Duration.ofHours(36)) > 0) {
+            return sumDailyLiters(deviceId, from, to);
+        }
+
+        List<MinuteUsageRecord> minutes = queryMinutes(deviceId, from, to);
+        return aggregateMinutes(minutes, from, to, granularity, timezone).stream()
+                .mapToDouble(UsageDataPointResponse::volumeLiters)
+                .sum();
+    }
+
+    private double sumDailyLiters(String deviceId, Instant from, Instant to) {
+        String tenantId = requireTenantId(deviceId);
+        ZoneId zone = ZoneOffset.UTC;
+        LocalDate startDate = from.atZone(zone).toLocalDate();
+        LocalDate endDate = to.atZone(zone).toLocalDate();
+        double total = 0;
+        for (LocalDate date = startDate; !date.isAfter(endDate); date = date.plusDays(1)) {
+            String usageKey = DailyUsageRecord.usageKeyFor(date.format(DATE_FORMAT), deviceId);
+            total +=
+                    telemetryIngestionService
+                            .findDailyUsage(tenantId, usageKey)
+                            .map(DailyUsageRecord::totalLiters)
+                            .orElse(0.0);
+        }
+        return total;
+    }
+
+    private String requireTenantId(String deviceId) {
+        return telemetryIngestionService
+                .findDeviceState(deviceId)
+                .map(DeviceStateRecord::tenantId)
+                .filter(tenantId -> !tenantId.isBlank())
+                .orElseThrow(
+                        () ->
+                                new ResponseStatusException(
+                                        HttpStatus.NOT_FOUND, "Device state not found"));
+    }
+
     private List<MinuteUsageRecord> queryMinutes(String deviceId, Instant from, Instant to) {
         String fromKey = MinuteUsageRecord.minuteKeyFor(from.truncatedTo(ChronoUnit.MINUTES));
         String toKey = MinuteUsageRecord.minuteKeyFor(to.truncatedTo(ChronoUnit.MINUTES));
 
-        var response =
-                dynamoDbClient.query(
-                        QueryRequest.builder()
-                                .tableName(minuteUsageTable)
-                                .keyConditionExpression(
-                                        "deviceId = :deviceId AND minuteKey BETWEEN :fromKey AND :toKey")
-                                .expressionAttributeValues(
-                                        Map.of(
-                                                ":deviceId",
-                                                AttributeValue.builder().s(deviceId).build(),
-                                                ":fromKey",
-                                                AttributeValue.builder().s(fromKey).build(),
-                                                ":toKey",
-                                                AttributeValue.builder().s(toKey).build()))
-                                .build());
-
         List<MinuteUsageRecord> records = new ArrayList<>();
-        for (var item : response.items()) {
-            records.add(MinuteUsageRecord.fromItem(item));
-        }
+        Map<String, AttributeValue> exclusiveStartKey = null;
+
+        do {
+            QueryRequest.Builder builder =
+                    QueryRequest.builder()
+                            .tableName(minuteUsageTable)
+                            .keyConditionExpression(
+                                    "deviceId = :deviceId AND minuteKey BETWEEN :fromKey AND :toKey")
+                            .expressionAttributeValues(
+                                    Map.of(
+                                            ":deviceId",
+                                            AttributeValue.builder().s(deviceId).build(),
+                                            ":fromKey",
+                                            AttributeValue.builder().s(fromKey).build(),
+                                            ":toKey",
+                                            AttributeValue.builder().s(toKey).build()));
+
+            if (exclusiveStartKey != null && !exclusiveStartKey.isEmpty()) {
+                builder.exclusiveStartKey(exclusiveStartKey);
+            }
+
+            var response = dynamoDbClient.query(builder.build());
+            for (var item : response.items()) {
+                records.add(MinuteUsageRecord.fromItem(item));
+                if (records.size() >= MAX_MINUTE_RECORDS_PER_QUERY) {
+                    return records;
+                }
+            }
+
+            exclusiveStartKey = response.lastEvaluatedKey();
+        } while (exclusiveStartKey != null && !exclusiveStartKey.isEmpty());
+
         return records;
+    }
+
+    private static ZoneId safeZone(String timezone) {
+        try {
+            return ZoneId.of(timezone);
+        } catch (Exception ignored) {
+            return ZoneOffset.UTC;
+        }
     }
 
     private List<UsageDataPointResponse> aggregateMinutes(
@@ -229,7 +292,7 @@ public class WaterReadingService {
             Instant to,
             UsageGranularity granularity,
             String timezone) {
-        ZoneId zone = ZoneId.of(timezone);
+        ZoneId zone = safeZone(timezone);
         Duration bucket = granularity.bucketDuration();
         Map<Instant, double[]> buckets = new HashMap<>();
 

@@ -24,18 +24,15 @@ public class UnitService {
 
     private final DynamoDbClient dynamoDbClient;
     private final TelemetryIngestionService telemetryIngestionService;
-    private final MockHistoricalBackfillService historicalBackfillService;
     private final String tableName;
     private final String tenantIdIndexName;
 
     UnitService(
             DynamoDbClient dynamoDbClient,
             TelemetryIngestionService telemetryIngestionService,
-            MockHistoricalBackfillService historicalBackfillService,
             @Value("${units.table.name:WaterMeterUnits}") String tableName) {
         this.dynamoDbClient = dynamoDbClient;
         this.telemetryIngestionService = telemetryIngestionService;
-        this.historicalBackfillService = historicalBackfillService;
         this.tableName = tableName;
         this.tenantIdIndexName = "tenantId-index";
     }
@@ -75,7 +72,6 @@ public class UnitService {
                 PutItemRequest.builder().tableName(tableName).item(unit.toItem()).build());
 
         telemetryIngestionService.initializeDeviceState(deviceId, tenantId);
-        historicalBackfillService.backfillIfNeeded(unit);
 
         return unit.toResponse();
     }

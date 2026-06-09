@@ -18,16 +18,19 @@ public class MockTelemetrySchedulerService {
 
     private final UnitService unitService;
     private final TelemetryIngestionService ingestionService;
+    private final MockHistoricalBackfillService historicalBackfillService;
     private final MockDeviceProfileFactory profileFactory;
     private final boolean enabled;
 
     MockTelemetrySchedulerService(
             UnitService unitService,
             TelemetryIngestionService ingestionService,
+            MockHistoricalBackfillService historicalBackfillService,
             MockDeviceProfileFactory profileFactory,
             @Value("${mock.telemetry.enabled:true}") boolean enabled) {
         this.unitService = unitService;
         this.ingestionService = ingestionService;
+        this.historicalBackfillService = historicalBackfillService;
         this.profileFactory = profileFactory;
         this.enabled = enabled;
     }
@@ -49,6 +52,7 @@ public class MockTelemetrySchedulerService {
                 if (!UnitRecord.STATUS_ENROLLED.equals(unit.enrollmentStatus())) {
                     continue;
                 }
+                historicalBackfillService.backfillIfNeeded(unit);
                 ingestForUnit(unit, now, zoned);
             } catch (Exception e) {
                 log.warn("Failed mock ingestion for device {}", unit.deviceId(), e);

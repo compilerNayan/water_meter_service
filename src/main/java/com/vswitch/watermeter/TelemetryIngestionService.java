@@ -168,6 +168,13 @@ public class TelemetryIngestionService {
                                         ? DeviceStateRecord.STATUS_FLOWING
                                         : DeviceStateRecord.STATUS_IDLE;
 
+        double lastUserPressure =
+                clamped <= 0
+                        ? (current.valveTargetPercent() > 0
+                                ? current.valveTargetPercent()
+                                : current.lastUserPressurePercent())
+                        : clamped;
+
         DeviceStateRecord updated =
                 new DeviceStateRecord(
                         deviceId,
@@ -177,7 +184,7 @@ public class TelemetryIngestionService {
                         status,
                         clamped,
                         actual,
-                        clamped,
+                        lastUserPressure,
                         current.lastSeenAt(),
                         current.mockProfile(),
                         now);
