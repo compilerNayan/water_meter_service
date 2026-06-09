@@ -72,7 +72,7 @@ public class UserService {
                     HttpStatus.BAD_REQUEST, "Email does not match authenticated user");
         }
 
-        TenantRecord tenant = tenantService.createTenant(request.tenantName(), userId);
+        TenantRecord tenant = tenantService.createTenantForOwner(userId);
         String now = Instant.now().toString();
         String displayName = buildDisplayName(request.firstName(), request.lastName());
 
@@ -168,9 +168,6 @@ public class UserService {
         }
         if (isBlank(request.lastName())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "lastName is required");
-        }
-        if (isBlank(request.tenantName())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "tenantName is required");
         }
     }
 

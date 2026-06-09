@@ -28,16 +28,16 @@ class DevicePreEnrollControllerTest {
 
     @Test
     void preEnrollDeviceReturnsCreated() throws Exception {
-        when(devicePreEnrollService.preEnroll(eq("user-123"), eq("tenant_abc"), any()))
+        when(devicePreEnrollService.preEnroll(eq("user-123"), eq("k3m9x2a"), any()))
                 .thenReturn(
                         new DevicePreEnrollResponse(
-                                "tenant_abc",
+                                "k3m9x2a",
                                 "WM000123",
                                 "pending",
                                 "2026-06-08T15:00:00Z"));
 
         mockMvc.perform(
-                        post("/tenants/tenant_abc/devices/pre-enroll")
+                        post("/tenants/k3m9x2a/devices/pre-enroll")
                                 .header("Authorization", "Bearer test-token")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(
@@ -47,10 +47,10 @@ class DevicePreEnrollControllerTest {
                                         }
                                         """))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.tenantId").value("tenant_abc"))
+                .andExpect(jsonPath("$.tenantId").value("k3m9x2a"))
                 .andExpect(jsonPath("$.serialNumber").value("WM000123"))
                 .andExpect(jsonPath("$.status").value("pending"));
 
-        verify(devicePreEnrollService).preEnroll(eq("user-123"), eq("tenant_abc"), any());
+        verify(devicePreEnrollService).preEnroll(eq("user-123"), eq("k3m9x2a"), any());
     }
 }

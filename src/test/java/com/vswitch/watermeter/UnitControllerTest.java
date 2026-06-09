@@ -34,7 +34,7 @@ class UnitControllerTest {
 
     @Test
     void createUnitReturnsCreated() throws Exception {
-        when(unitService.createUnit(eq("tenant_abc"), any()))
+        when(unitService.createUnit(eq("k3m9x2a"), any()))
                 .thenReturn(
                         new UnitResponse(
                                 "wm-WM000001",
@@ -51,7 +51,7 @@ class UnitControllerTest {
                                 "D205-1234"));
 
         mockMvc.perform(
-                        post("/tenants/tenant_abc/units")
+                        post("/tenants/k3m9x2a/units")
                                 .header("Authorization", "Bearer test-token")
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(
@@ -71,12 +71,12 @@ class UnitControllerTest {
                 .andExpect(jsonPath("$.id").value("wm-WM000001"))
                 .andExpect(jsonPath("$.enrollmentStatus").value("pending"));
 
-        verify(userService).requireTenantMember("user-123", "tenant_abc");
+        verify(userService).requireTenantMember("user-123", "k3m9x2a");
     }
 
     @Test
     void listUnitsReturnsUnits() throws Exception {
-        when(unitService.listUnits("tenant_abc"))
+        when(unitService.listUnits("k3m9x2a"))
                 .thenReturn(
                         new UnitListResponse(
                                 List.of(
@@ -95,7 +95,7 @@ class UnitControllerTest {
                                                 "D205-1234"))));
 
         mockMvc.perform(
-                        get("/tenants/tenant_abc/units")
+                        get("/tenants/k3m9x2a/units")
                                 .header("Authorization", "Bearer test-token"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.units[0].deviceId").value("WM000001"));
@@ -103,11 +103,11 @@ class UnitControllerTest {
 
     @Test
     void enrollmentStatusPlaceholderReturnsEnrolled() throws Exception {
-        when(unitService.getEnrollmentStatus("tenant_abc", "WM000001"))
+        when(unitService.getEnrollmentStatus("k3m9x2a", "WM000001"))
                 .thenReturn(new EnrollmentStatusResponse(true, UnitRecord.STATUS_ENROLLED));
 
         mockMvc.perform(
-                        get("/tenants/tenant_abc/devices/WM000001/enrollment-status")
+                        get("/tenants/k3m9x2a/devices/WM000001/enrollment-status")
                                 .header("Authorization", "Bearer test-token"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enrolled").value(true))

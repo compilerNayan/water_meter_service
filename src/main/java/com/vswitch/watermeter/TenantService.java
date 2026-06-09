@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
+import java.security.SecureRandom;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -26,10 +26,13 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 public class TenantService {
 
     private static final String DEFAULT_STRUCTURE = "{\"blocks\":[]}";
+    private static final String BASE36 = "0123456789abcdefghijklmnopqrstuvwxyz";
+    private static final int TENANT_ID_LENGTH = 7;
 
     private final DynamoDbClient dynamoDbClient;
     private final String tableName;
     private final ObjectMapper objectMapper;
+    private final SecureRandom random = new SecureRandom();
 
     TenantService(
             DynamoDbClient dynamoDbClient,
@@ -40,17 +43,36 @@ public class TenantService {
         this.objectMapper = objectMapper;
     }
 
-    TenantRecord createTenant(String name, String ownerUserId) {
+    TenantRecord createTenantForOwner(String ownerUserId) {
         String now = Instant.now().toString();
-        String tenantId = "tenant_" + UUID.randomUUID().toString().replace("-", "");
+        String tenantId = generateUniqueTenantId();
         TenantRecord tenant =
-                new TenantRecord(tenantId, name, ownerUserId, DEFAULT_STRUCTURE, now, now);
+                new TenantRecord(tenantId, "", ownerUserId, DEFAULT_STRUCTURE, now, now);
         dynamoDbClient.putItem(
                 PutItemRequest.builder()
                         .tableName(tableName)
                         .item(tenant.toItem())
                         .build());
         return tenant;
+    }
+
+    String generateUniqueTenantId() {
+        for (int attempt = 0; attempt < 20; attempt++) {
+            String candidate = randomBase36(TENANT_ID_LENGTH);
+            if (findById(candidate).isEmpty()) {
+                return candidate;
+            }
+        }
+        throw new ResponseStatusException(
+                HttpStatus.INTERNAL_SERVER_ERROR, "Could not generate tenant id");
+    }
+
+    private String randomBase36(int length) {
+        StringBuilder builder = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
+            builder.append(BASE36.charAt(random.nextInt(BASE36.length())));
+        }
+        return builder.toString();
     }
 
     Optional<TenantRecord> findById(String tenantId) {
@@ -245,14 +267,13 @@ public class TenantService {
         }
         List<WingDto> wings = new ArrayList<>();
         for (JsonNode wingNode : wingsNode) {
-            if (wingNode.isTextual()) {
-                wings.add(new WingDto(wingNode.asText(), 0));
-            } else if (wingNode.isObject()) {
-                String name = textOrEmpty(wingNode, "name");
-                int floorCount =
-                        wingNode.has("floorCount") ? wingNode.get("floorCount").asInt(0) : 0;
-                wings.add(new WingDto(name, floorCount));
+            if (!wingNode.isObject()) {
+                continue;
             }
+            String name = textOrEmpty(wingNode, "name");
+            int floorCount =
+                    wingNode.has("floorCount") ? wingNode.get("floorCount").asInt(0) : 0;
+            wings.add(new WingDto(name, floorCount));
         }
         return wings;
     }

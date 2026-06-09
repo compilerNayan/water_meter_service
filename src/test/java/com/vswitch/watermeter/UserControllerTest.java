@@ -38,14 +38,14 @@ class UserControllerTest {
                                 "+919876543210",
                                 "Raj",
                                 "Sharma",
-                                "tenant_abc",
+                                "a1b2c3d",
                                 true,
                                 true));
 
         mockMvc.perform(get("/users/me").header("Authorization", "Bearer test-token"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value("user-123"))
-                .andExpect(jsonPath("$.tenantId").value("tenant_abc"))
+                .andExpect(jsonPath("$.tenantId").value("a1b2c3d"))
                 .andExpect(jsonPath("$.isTenantOwner").value(true));
     }
 
@@ -61,7 +61,7 @@ class UserControllerTest {
                                         "+919876543210",
                                         "Raj",
                                         "Sharma",
-                                        "tenant_abc",
+                                        "a1b2c3d",
                                         false,
                                         true),
                                 true));
@@ -76,12 +76,11 @@ class UserControllerTest {
                                           "email": "admin@building.com",
                                           "phone": "+919876543210",
                                           "firstName": "Raj",
-                                          "lastName": "Sharma",
-                                          "tenantName": "Sunrise Apartments"
+                                          "lastName": "Sharma"
                                         }
                                         """))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.tenantId").value("tenant_abc"));
+                .andExpect(jsonPath("$.tenantId").value("a1b2c3d"));
 
         verify(userService).registerUser(eq("user-123"), eq("admin@building.com"), any());
     }
@@ -98,7 +97,7 @@ class UserControllerTest {
                                         "",
                                         "Raj",
                                         "Sharma",
-                                        "tenant_abc",
+                                        "a1b2c3d",
                                         true,
                                         true),
                                 false));
@@ -112,8 +111,7 @@ class UserControllerTest {
                                         {
                                           "email": "admin@building.com",
                                           "firstName": "Raj",
-                                          "lastName": "Sharma",
-                                          "tenantName": "Sunrise Apartments"
+                                          "lastName": "Sharma"
                                         }
                                         """))
                 .andExpect(status().isOk())
