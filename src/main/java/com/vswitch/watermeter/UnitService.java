@@ -25,18 +25,15 @@ import com.vswitch.watermeter.device.DeviceFacade;
 public class UnitService {
 
     private final DynamoDbClient dynamoDbClient;
-    private final TelemetryIngestionService telemetryIngestionService;
     private final DeviceFacade deviceFacade;
     private final String tableName;
     private final String tenantIdIndexName;
 
     UnitService(
             DynamoDbClient dynamoDbClient,
-            TelemetryIngestionService telemetryIngestionService,
             DeviceFacade deviceFacade,
             @Value("${units.table.name:WaterMeterUnits}") String tableName) {
         this.dynamoDbClient = dynamoDbClient;
-        this.telemetryIngestionService = telemetryIngestionService;
         this.deviceFacade = deviceFacade;
         this.tableName = tableName;
         this.tenantIdIndexName = "tenantId-index";
@@ -76,7 +73,7 @@ public class UnitService {
         dynamoDbClient.putItem(
                 PutItemRequest.builder().tableName(tableName).item(unit.toItem()).build());
 
-        telemetryIngestionService.initializeDeviceState(deviceId, tenantId);
+        deviceFacade.initializeDeviceState(deviceId, tenantId);
         deviceFacade.initializeDeviceConfig(deviceId, tenantId);
 
         return unit.toResponse();

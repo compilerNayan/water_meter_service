@@ -20,7 +20,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.vswitch.watermeter.device.DeviceFacade;
-import com.vswitch.watermeter.device.DeviceQuotaConfig;
 
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -29,7 +28,6 @@ import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 @Service
 public class WaterReadingService {
 
-    private static final Duration OFFLINE_THRESHOLD = Duration.ofMinutes(15);
     private static final int MAX_MINUTE_RECORDS_PER_QUERY = 4_000;
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
@@ -53,14 +51,7 @@ public class WaterReadingService {
     }
 
     CurrentReadingResponse getCurrentReading(String deviceId) {
-        DeviceStateRecord state = requireDeviceState(deviceId);
-        String status = resolveStatus(state);
-        return new CurrentReadingResponse(
-                deviceId,
-                state.lastSeenAt(),
-                state.flowRateLpm(),
-                state.cumulativeLiters(),
-                status);
+        return deviceFacade.getCurrentReading(deviceId);
     }
 
     WaterUsageResponse getUsage(
@@ -155,83 +146,23 @@ public class WaterReadingService {
     }
 
     ValveStateResponse getValveState(String deviceId, String tenantId) {
-        DeviceStateRecord state = requireDeviceState(deviceId);
-        return toValveResponse(state, tenantId);
+        return deviceFacade.getValveState(deviceId, tenantId);
     }
 
     ValveStateResponse updateValve(String deviceId, ValveUpdateRequest request) {
-        if (request.action() != null && "restore".equalsIgnoreCase(request.action())) {
-            DeviceStateRecord state = requireDeviceState(deviceId);
-            return toValveResponse(
-                    telemetryIngestionService.updateValveTarget(
-                            deviceId, state.lastUserPressurePercent()),
-                    requireTenantId(deviceId));
-        }
-        if (request.pressurePercent() == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "pressurePercent required");
-        }
-        return toValveResponse(
-                telemetryIngestionService.updateValveTarget(deviceId, request.pressurePercent()),
-                requireTenantId(deviceId));
+        String tenantId = requireTenantId(deviceId);
+        return deviceFacade.setValveTarget(deviceId, tenantId, request);
     }
 
-    private DeviceStateRecord requireDeviceState(String deviceId) {
+    private String requireTenantId(String deviceId) {
         return telemetryIngestionService
                 .findDeviceState(deviceId)
+                .map(DeviceStateRecord::tenantId)
+                .filter(tenantId -> !tenantId.isBlank())
                 .orElseThrow(
                         () ->
                                 new ResponseStatusException(
                                         HttpStatus.NOT_FOUND, "Device state not found"));
-    }
-
-    private String resolveStatus(DeviceStateRecord state) {
-        if (state.lastSeenAt() == null || state.lastSeenAt().isBlank()) {
-            return DeviceStateRecord.STATUS_OFFLINE;
-        }
-        Instant lastSeen = Instant.parse(state.lastSeenAt());
-        if (Duration.between(lastSeen, Instant.now()).compareTo(OFFLINE_THRESHOLD) > 0) {
-            return DeviceStateRecord.STATUS_OFFLINE;
-        }
-        return state.status();
-    }
-
-    private ValveStateResponse toValveResponse(DeviceStateRecord state, String tenantId) {
-        boolean isOff = state.valveTargetPercent() <= 0;
-        double effective = isOff ? 0 : state.valveActualPercent();
-        String controlMode = "manual";
-        Double quotaCapPercent = null;
-
-        try {
-            DeviceQuotaConfig config = deviceFacade.getQuotaConfig(state.deviceId());
-            if (config.enabled()) {
-                double used = getTodayUsedLiters(state.deviceId(), tenantId);
-                QuotaCalculator.QuotaCapResult cap =
-                        QuotaCalculator.computeCap(
-                                config.steps(), used, config.dailyLimitLiters());
-                quotaCapPercent = cap.capPercent();
-                if (quotaCapPercent != null) {
-                    controlMode = "quota";
-                    if (quotaCapPercent == 0) {
-                        effective = 0;
-                    } else if (!isOff) {
-                        effective = Math.min(effective, quotaCapPercent);
-                    }
-                }
-            }
-        } catch (ResponseStatusException ignored) {
-            // No device config yet — quota not applied.
-        }
-
-        return new ValveStateResponse(
-                state.deviceId(),
-                state.updatedAt(),
-                state.valveTargetPercent(),
-                state.valveActualPercent(),
-                state.lastUserPressurePercent(),
-                isOff,
-                controlMode,
-                quotaCapPercent,
-                effective);
     }
 
     private double sumUsageTotal(
@@ -266,17 +197,6 @@ public class WaterReadingService {
                             .orElse(0.0);
         }
         return total;
-    }
-
-    private String requireTenantId(String deviceId) {
-        return telemetryIngestionService
-                .findDeviceState(deviceId)
-                .map(DeviceStateRecord::tenantId)
-                .filter(tenantId -> !tenantId.isBlank())
-                .orElseThrow(
-                        () ->
-                                new ResponseStatusException(
-                                        HttpStatus.NOT_FOUND, "Device state not found"));
     }
 
     private List<MinuteUsageRecord> queryMinutes(String deviceId, Instant from, Instant to) {

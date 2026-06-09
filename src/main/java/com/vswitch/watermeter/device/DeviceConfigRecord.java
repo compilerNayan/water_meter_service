@@ -16,6 +16,15 @@ public record DeviceConfigRecord(
         String updatedAt) {
 
     static DeviceConfigRecord defaults(String deviceId, String tenantId, String now) {
+        return defaults(deviceId, tenantId, now, 100, 100);
+    }
+
+    static DeviceConfigRecord defaults(
+            String deviceId,
+            String tenantId,
+            String now,
+            double valveTargetPercent,
+            double lastUserPressurePercent) {
         return new DeviceConfigRecord(
                 deviceId,
                 tenantId,
@@ -23,8 +32,8 @@ public record DeviceConfigRecord(
                 500,
                 "[]",
                 "UTC",
-                100,
-                100,
+                valveTargetPercent,
+                lastUserPressurePercent,
                 now);
     }
 

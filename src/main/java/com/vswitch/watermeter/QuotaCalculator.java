@@ -3,11 +3,11 @@ package com.vswitch.watermeter;
 import java.util.Comparator;
 import java.util.List;
 
-final class QuotaCalculator {
+public final class QuotaCalculator {
 
     private QuotaCalculator() {}
 
-    static QuotaCapResult computeCap(
+    public static QuotaCapResult computeCap(
             List<QuotaStepDto> steps, double usedLiters, double dailyLimitLiters) {
         List<QuotaStepDto> sorted =
                 steps.stream()
@@ -49,6 +49,6 @@ final class QuotaCalculator {
         return new QuotaCapResult(capPercent, activeIndex, nextStepAt, remaining);
     }
 
-    record QuotaCapResult(
+    public record QuotaCapResult(
             Double capPercent, int activeStepIndex, Double nextStepAtLiters, double remainingLiters) {}
 }

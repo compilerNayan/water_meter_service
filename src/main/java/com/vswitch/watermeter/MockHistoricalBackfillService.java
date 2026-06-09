@@ -3,15 +3,15 @@ package com.vswitch.watermeter;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+
+import com.vswitch.watermeter.device.DeviceFacade;
 
 /**
  * Seeds DynamoDB with realistic usage history when a device completes mock enrollment.
@@ -22,17 +22,17 @@ public class MockHistoricalBackfillService {
     private static final Logger log = LoggerFactory.getLogger(MockHistoricalBackfillService.class);
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
-    private final TelemetryIngestionService ingestionService;
+    private final DeviceFacade deviceFacade;
     private final MockDeviceProfileFactory profileFactory;
     private final int backfillDays;
     private final long historyTtlSeconds;
 
     MockHistoricalBackfillService(
-            TelemetryIngestionService ingestionService,
+            DeviceFacade deviceFacade,
             MockDeviceProfileFactory profileFactory,
             @Value("${mock.history.backfill.days:10}") int backfillDays,
             @Value("${mock.history.ttl.days:15}") int historyTtlDays) {
-        this.ingestionService = ingestionService;
+        this.deviceFacade = deviceFacade;
         this.profileFactory = profileFactory;
         this.backfillDays = Math.max(1, backfillDays);
         this.historyTtlSeconds = Math.max(2L, historyTtlDays) * 24 * 3600;
@@ -46,7 +46,7 @@ public class MockHistoricalBackfillService {
         LocalDate oldestDay = LocalDate.now(ZoneOffset.UTC).minusDays(backfillDays);
         String oldestKey =
                 DailyUsageRecord.usageKeyFor(oldestDay.format(DATE_FORMAT), unit.deviceId());
-        if (ingestionService.findDailyUsage(unit.tenantId(), oldestKey).isPresent()) {
+        if (deviceFacade.findDailyUsage(unit.tenantId(), oldestKey).isPresent()) {
             log.debug("History already backfilled for device {}", unit.deviceId());
             return;
         }
@@ -82,7 +82,7 @@ public class MockHistoricalBackfillService {
                                 ? DeviceStateRecord.STATUS_FLOWING
                                 : DeviceStateRecord.STATUS_IDLE;
 
-                ingestionService.writeHistoricalHour(
+                deviceFacade.writeHistoricalHour(
                         unit,
                         hourStart,
                         volume,
@@ -92,18 +92,14 @@ public class MockHistoricalBackfillService {
                         expiresAt);
             }
 
-            ingestionService.writeHistoricalDaily(
-                    unit,
-                    date,
-                    dailyTarget,
-                    peakHour,
-                    peakHourLiters);
+            deviceFacade.writeHistoricalDaily(
+                    unit, date, dailyTarget, peakHour, peakHourLiters);
 
             totalHistoricalLiters += dailyTarget;
         }
 
         if (lastHour != null) {
-            ingestionService.applyHistoricalCumulative(
+            deviceFacade.applyHistoricalCumulative(
                     unit.deviceId(), totalHistoricalLiters, lastHour);
         }
     }

@@ -188,6 +188,7 @@ Resources:
           DEVICE_STATE_TABLE_NAME: WaterMeterDeviceState
           MINUTE_USAGE_TABLE_NAME: WaterMeterMinuteUsage
           DAILY_USAGE_TABLE_NAME: WaterMeterDailyUsage
+          DEVICE_CONFIG_TABLE_NAME: WaterMeterDeviceConfig
           MOCK_TELEMETRY_ENABLED: "true"
           MOCK_HISTORY_BACKFILL_DAYS: "10"
           MOCK_HISTORY_TTL_DAYS: "15"
@@ -200,6 +201,8 @@ Resources:
             TableName: WaterMeterMinuteUsage
         - DynamoDBCrudPolicy:
             TableName: WaterMeterDailyUsage
+        - DynamoDBCrudPolicy:
+            TableName: WaterMeterDeviceConfig
       Events:
         EveryMinute:
           Type: Schedule

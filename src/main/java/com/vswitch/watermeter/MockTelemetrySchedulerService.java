@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 
 import org.slf4j.Logger;
@@ -11,25 +12,29 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import com.vswitch.watermeter.device.DeviceFacade;
+import com.vswitch.watermeter.device.MinuteBucketEntry;
+import com.vswitch.watermeter.device.ThirtyMinuteBucketPayload;
+
 @Service
 public class MockTelemetrySchedulerService {
 
     private static final Logger log = LoggerFactory.getLogger(MockTelemetrySchedulerService.class);
 
     private final UnitService unitService;
-    private final TelemetryIngestionService ingestionService;
+    private final DeviceFacade deviceFacade;
     private final MockHistoricalBackfillService historicalBackfillService;
     private final MockDeviceProfileFactory profileFactory;
     private final boolean enabled;
 
     MockTelemetrySchedulerService(
             UnitService unitService,
-            TelemetryIngestionService ingestionService,
+            DeviceFacade deviceFacade,
             MockHistoricalBackfillService historicalBackfillService,
             MockDeviceProfileFactory profileFactory,
             @Value("${mock.telemetry.enabled:true}") boolean enabled) {
         this.unitService = unitService;
-        this.ingestionService = ingestionService;
+        this.deviceFacade = deviceFacade;
         this.historicalBackfillService = historicalBackfillService;
         this.profileFactory = profileFactory;
         this.enabled = enabled;
@@ -47,17 +52,20 @@ public class MockTelemetrySchedulerService {
 
         log.info("Mock telemetry ingestion for {} units at {}", units.size(), now);
 
-        for (UnitRecord unit : units) {
-            try {
-                if (!UnitRecord.STATUS_ENROLLED.equals(unit.enrollmentStatus())) {
-                    continue;
-                }
-                historicalBackfillService.backfillIfNeeded(unit);
-                ingestForUnit(unit, now, zoned);
-            } catch (Exception e) {
-                log.warn("Failed mock ingestion for device {}", unit.deviceId(), e);
-            }
-        }
+        units.parallelStream()
+                .filter(unit -> UnitRecord.STATUS_ENROLLED.equals(unit.enrollmentStatus()))
+                .forEach(
+                        unit -> {
+                            try {
+                                historicalBackfillService.backfillIfNeeded(unit);
+                                ingestForUnit(unit, now, zoned);
+                            } catch (Exception e) {
+                                log.warn(
+                                        "Failed mock ingestion for device {}",
+                                        unit.deviceId(),
+                                        e);
+                            }
+                        });
     }
 
     private void ingestForUnit(UnitRecord unit, Instant minute, ZonedDateTime zoned) {
@@ -67,19 +75,10 @@ public class MockTelemetrySchedulerService {
             return;
         }
 
-        DeviceStateRecord state =
-                ingestionService
-                        .findDeviceState(unit.deviceId())
-                        .orElseGet(
-                                () -> {
-                                    ingestionService.initializeDeviceState(
-                                            unit.deviceId(), unit.tenantId());
-                                    return ingestionService
-                                            .findDeviceState(unit.deviceId())
-                                            .orElseThrow();
-                                });
+        deviceFacade.initializeDeviceState(unit.deviceId(), unit.tenantId());
 
-        double valveTarget = state.valveTargetPercent();
+        double valveTarget =
+                deviceFacade.getValveState(unit.deviceId(), unit.tenantId()).targetPressurePercent();
         double volumeLiters = profileFactory.minuteVolumeLiters(profile, zoned);
         double avgFlow = volumeLiters;
 
@@ -104,7 +103,45 @@ public class MockTelemetrySchedulerService {
             status = DeviceStateRecord.STATUS_IDLE;
         }
 
-        ingestionService.ingestMinuteBucket(
+        if (avgFlow > 0.2) {
+            deviceFacade.ingestSecondPulse(
+                    unit.tenantId(), unit.deviceId(), minute, volumeLiters * 1000 / 60);
+        }
+
+        deviceFacade.ingestMinuteBucket(
                 unit, minute, volumeLiters, avgFlow, valveTarget, status);
+
+        if (profileFactory.isValveMismatchMinute(profile, zoned)) {
+            deviceFacade.ingestValveStateReport(unit.tenantId(), unit.deviceId(), 0, avgFlow > 0 ? 2 : 0);
+        }
+
+        if (minute.atZone(ZoneOffset.UTC).getMinute() % 30 == 0) {
+            ingest30MinuteBoundary(unit, minute, valveTarget, volumeLiters);
+        }
+    }
+
+    private void ingest30MinuteBoundary(
+            UnitRecord unit, Instant minute, double valveTarget, double lastMinuteLiters) {
+        Instant periodStart = minute.minus(29, ChronoUnit.MINUTES);
+        List<MinuteBucketEntry> minutes = new ArrayList<>();
+        for (int i = 0; i < 30; i++) {
+            Instant t = periodStart.plus(i, ChronoUnit.MINUTES);
+            double ml = (i == 29) ? lastMinuteLiters * 1000 : lastMinuteLiters * 1000 * 0.9;
+            minutes.add(new MinuteBucketEntry(t, ml));
+        }
+
+        double cumulative =
+                deviceFacade
+                        .getCurrentReading(unit.deviceId())
+                        .cumulativeLiters();
+
+        deviceFacade.ingest30MinuteBucket(
+                new ThirtyMinuteBucketPayload(
+                        unit.tenantId(),
+                        unit.deviceId(),
+                        periodStart,
+                        minutes,
+                        cumulative,
+                        valveTarget));
     }
 }
