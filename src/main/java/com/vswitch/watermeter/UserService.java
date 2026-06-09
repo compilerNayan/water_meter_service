@@ -86,7 +86,7 @@ public class UserService {
                         displayName,
                         tenant.tenantId(),
                         true,
-                        true,
+                        false,
                         now,
                         now);
 
@@ -100,6 +100,61 @@ public class UserService {
     }
 
     record UserRegistrationResult(UserResponse response, boolean created) {}
+
+    void requireTenantMember(String userId, String tenantId) {
+        UserRecord user = requireUser(userId);
+        if (user.tenantId() == null || user.tenantId().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN, "User is not associated with a tenant");
+        }
+        if (!user.tenantId().equals(tenantId)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN, "Tenant does not match authenticated user");
+        }
+    }
+
+    void requireTenantOwner(String userId, String tenantId) {
+        UserRecord user = requireUser(userId);
+        requireTenantMember(userId, tenantId);
+        if (!user.isTenantOwner()) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN, "Only the tenant owner can perform this action");
+        }
+    }
+
+    void completeOnboarding(String userId) {
+        UserRecord user = requireUser(userId);
+        if (user.onboardingComplete()) {
+            return;
+        }
+        String now = Instant.now().toString();
+        UserRecord updated =
+                new UserRecord(
+                        user.userId(),
+                        user.email(),
+                        user.phone(),
+                        user.firstName(),
+                        user.lastName(),
+                        user.displayName(),
+                        user.tenantId(),
+                        user.isTenantOwner(),
+                        true,
+                        user.createdAt(),
+                        now);
+        dynamoDbClient.putItem(
+                PutItemRequest.builder()
+                        .tableName(tableName)
+                        .item(updated.toItem())
+                        .build());
+    }
+
+    private UserRecord requireUser(String userId) {
+        return findById(userId)
+                .orElseThrow(
+                        () ->
+                                new ResponseStatusException(
+                                        HttpStatus.NOT_FOUND, "User not registered"));
+    }
 
     private void validateRequest(CreateUserRequest request) {
         if (request == null) {

@@ -1,14 +1,21 @@
 package com.vswitch.watermeter;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -22,12 +29,15 @@ public class TenantService {
 
     private final DynamoDbClient dynamoDbClient;
     private final String tableName;
+    private final ObjectMapper objectMapper;
 
     TenantService(
             DynamoDbClient dynamoDbClient,
-            @Value("${tenants.table.name:WaterMeterTenants}") String tableName) {
+            @Value("${tenants.table.name:WaterMeterTenants}") String tableName,
+            ObjectMapper objectMapper) {
         this.dynamoDbClient = dynamoDbClient;
         this.tableName = tableName;
+        this.objectMapper = objectMapper;
     }
 
     TenantRecord createTenant(String name, String ownerUserId) {
@@ -57,5 +67,200 @@ public class TenantService {
             return Optional.empty();
         }
         return Optional.of(TenantRecord.fromItem(response.item()));
+    }
+
+    TenantResponse getTenant(String tenantId) {
+        TenantRecord tenant =
+                findById(tenantId)
+                        .orElseThrow(
+                                () ->
+                                        new ResponseStatusException(
+                                                HttpStatus.NOT_FOUND, "Tenant not found"));
+        return toResponse(tenant);
+    }
+
+    TenantResponse updateBuilding(String tenantId, String name, StructureDto structure) {
+        validateBuildingName(name);
+        validateStructure(structure);
+        String structureJson = serializeStructure(structure);
+
+        TenantRecord existing =
+                findById(tenantId)
+                        .orElseThrow(
+                                () ->
+                                        new ResponseStatusException(
+                                                HttpStatus.NOT_FOUND, "Tenant not found"));
+
+        String now = Instant.now().toString();
+        TenantRecord updated =
+                new TenantRecord(
+                        tenantId,
+                        name.trim(),
+                        existing.ownerUserId(),
+                        structureJson,
+                        existing.createdAt(),
+                        now);
+
+        dynamoDbClient.putItem(
+                PutItemRequest.builder()
+                        .tableName(tableName)
+                        .item(updated.toItem())
+                        .build());
+
+        return toResponse(updated);
+    }
+
+    TenantResponse updateStructure(String tenantId, StructureDto structure) {
+        validateStructure(structure);
+        String structureJson = serializeStructure(structure);
+
+        TenantRecord existing =
+                findById(tenantId)
+                        .orElseThrow(
+                                () ->
+                                        new ResponseStatusException(
+                                                HttpStatus.NOT_FOUND, "Tenant not found"));
+
+        String now = Instant.now().toString();
+        TenantRecord updated =
+                new TenantRecord(
+                        tenantId,
+                        existing.name(),
+                        existing.ownerUserId(),
+                        structureJson,
+                        existing.createdAt(),
+                        now);
+
+        dynamoDbClient.putItem(
+                PutItemRequest.builder()
+                        .tableName(tableName)
+                        .item(updated.toItem())
+                        .build());
+
+        return toResponse(updated);
+    }
+
+    TenantResponse toResponse(TenantRecord tenant) {
+        return new TenantResponse(
+                tenant.tenantId(), tenant.name(), deserializeStructure(tenant.structure()));
+    }
+
+    void validateBuildingName(String name) {
+        if (name == null || name.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Building name is required");
+        }
+    }
+
+    void validateStructure(StructureDto structure) {
+        if (structure == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "structure is required");
+        }
+
+        List<BlockDto> blocks = structure.blocks() == null ? List.of() : structure.blocks();
+        Set<String> blockIds = new HashSet<>();
+
+        for (BlockDto block : blocks) {
+            if (block == null) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "Block entries cannot be null");
+            }
+            if (block.id() == null || block.id().isBlank()) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "Each block requires an id");
+            }
+            String blockId = block.id().trim();
+            if (!blockIds.add(blockId)) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "Duplicate block id: " + blockId);
+            }
+
+            List<WingDto> wings = block.wings() == null ? List.of() : block.wings();
+            Set<String> wingNames = new HashSet<>();
+            for (WingDto wing : wings) {
+                if (wing == null) {
+                    throw new ResponseStatusException(
+                            HttpStatus.BAD_REQUEST, "Wing entries cannot be null");
+                }
+                if (wing.name() == null || wing.name().isBlank()) {
+                    throw new ResponseStatusException(
+                            HttpStatus.BAD_REQUEST,
+                            "Each wing requires a name in block " + blockId);
+                }
+                String wingName = wing.name().trim();
+                if (!wingNames.add(wingName)) {
+                    throw new ResponseStatusException(
+                            HttpStatus.BAD_REQUEST,
+                            "Duplicate wing name in block " + blockId + ": " + wingName);
+                }
+                int floorCount = wing.floorCount() == null ? 0 : wing.floorCount();
+                if (floorCount < 0) {
+                    throw new ResponseStatusException(
+                            HttpStatus.BAD_REQUEST,
+                            "floorCount must be >= 0 for wing " + wingName);
+                }
+            }
+        }
+    }
+
+    String serializeStructure(StructureDto structure) {
+        try {
+            return objectMapper.writeValueAsString(structure);
+        } catch (Exception e) {
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR, "Failed to serialize structure");
+        }
+    }
+
+    StructureDto deserializeStructure(String structureJson) {
+        if (structureJson == null || structureJson.isBlank()) {
+            return new StructureDto(List.of());
+        }
+        try {
+            JsonNode root = objectMapper.readTree(structureJson);
+            JsonNode blocksNode = root.get("blocks");
+            if (blocksNode == null || !blocksNode.isArray()) {
+                return new StructureDto(List.of());
+            }
+
+            List<BlockDto> blocks = new ArrayList<>();
+            for (JsonNode blockNode : blocksNode) {
+                String id = textOrEmpty(blockNode, "id");
+                String label = blockNode.hasNonNull("label") ? blockNode.get("label").asText() : id;
+                List<WingDto> wings = parseWings(blockNode.get("wings"));
+                blocks.add(new BlockDto(id, label, wings));
+            }
+            return new StructureDto(blocks);
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            return new StructureDto(List.of());
+        }
+    }
+
+    private List<WingDto> parseWings(JsonNode wingsNode) {
+        if (wingsNode == null || !wingsNode.isArray()) {
+            return List.of();
+        }
+        List<WingDto> wings = new ArrayList<>();
+        for (JsonNode wingNode : wingsNode) {
+            if (wingNode.isTextual()) {
+                wings.add(new WingDto(wingNode.asText(), 0));
+            } else if (wingNode.isObject()) {
+                String name = textOrEmpty(wingNode, "name");
+                int floorCount =
+                        wingNode.has("floorCount") ? wingNode.get("floorCount").asInt(0) : 0;
+                wings.add(new WingDto(name, floorCount));
+            }
+        }
+        return wings;
+    }
+
+    private static String textOrEmpty(JsonNode node, String field) {
+        if (node == null || !node.hasNonNull(field)) {
+            return "";
+        }
+        return node.get(field).asText();
     }
 }

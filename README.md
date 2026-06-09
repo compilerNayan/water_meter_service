@@ -11,6 +11,9 @@ Spring Boot REST API packaged for AWS Lambda behind API Gateway.
 | PUT | `/test/{testId}` | No | Stores `testId` in DynamoDB `TestTable` |
 | POST | `/users` | Cognito JWT | Register user + create tenant (idempotent) |
 | GET | `/users/me` | Cognito JWT | Returns authenticated user profile from DynamoDB |
+| GET | `/tenants/{tenantId}` | Cognito JWT | Returns tenant/building config |
+| POST | `/tenants/{tenantId}/building` | Cognito JWT (owner) | Save building name + structure; completes onboarding |
+| PUT | `/tenants/{tenantId}/structure` | Cognito JWT (owner) | Update building layout |
 | POST | `/tenants/{tenantId}/devices/pre-enroll` | Cognito JWT | Reserve device serial for tenant (pending enrollment) |
 
 **DynamoDB tables:** `WaterMeterUsers` (PK `userId`), `WaterMeterTenants` (PK `tenantId`), `WaterMeterDevicePreEnrollments` (PK `serialNumber`)

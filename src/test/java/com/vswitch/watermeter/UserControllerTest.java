@@ -62,7 +62,7 @@ class UserControllerTest {
                                         "Raj",
                                         "Sharma",
                                         "tenant_abc",
-                                        true,
+                                        false,
                                         true),
                                 true));
 
