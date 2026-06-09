@@ -9,7 +9,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.security.SecureRandom;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -33,21 +35,24 @@ public class TenantService {
     private final String tableName;
     private final ObjectMapper objectMapper;
     private final SecureRandom random = new SecureRandom();
+    private final TenantMetadataService tenantMetadataService;
 
     TenantService(
             DynamoDbClient dynamoDbClient,
             @Value("${tenants.table.name:WaterMeterTenants}") String tableName,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            @Autowired @Lazy TenantMetadataService tenantMetadataService) {
         this.dynamoDbClient = dynamoDbClient;
         this.tableName = tableName;
         this.objectMapper = objectMapper;
+        this.tenantMetadataService = tenantMetadataService;
     }
 
     TenantRecord createTenantForOwner(String ownerUserId) {
         String now = Instant.now().toString();
         String tenantId = generateUniqueTenantId();
         TenantRecord tenant =
-                new TenantRecord(tenantId, "", ownerUserId, DEFAULT_STRUCTURE, now, now);
+                new TenantRecord(tenantId, "", ownerUserId, DEFAULT_STRUCTURE, now, now, null);
         dynamoDbClient.putItem(
                 PutItemRequest.builder()
                         .tableName(tableName)
@@ -121,7 +126,8 @@ public class TenantService {
                         existing.ownerUserId(),
                         structureJson,
                         existing.createdAt(),
-                        now);
+                        now,
+                        existing.metadataHash());
 
         dynamoDbClient.putItem(
                 PutItemRequest.builder()
@@ -129,6 +135,7 @@ public class TenantService {
                         .item(updated.toItem())
                         .build());
 
+        tenantMetadataService.recomputeAndPersist(tenantId);
         return toResponse(updated);
     }
 
@@ -151,7 +158,8 @@ public class TenantService {
                         existing.ownerUserId(),
                         structureJson,
                         existing.createdAt(),
-                        now);
+                        now,
+                        existing.metadataHash());
 
         dynamoDbClient.putItem(
                 PutItemRequest.builder()
@@ -159,7 +167,23 @@ public class TenantService {
                         .item(updated.toItem())
                         .build());
 
+        tenantMetadataService.recomputeAndPersist(tenantId);
         return toResponse(updated);
+    }
+
+    void persistMetadataHash(String tenantId, String metadataHash) {
+        TenantRecord existing =
+                findById(tenantId)
+                        .orElseThrow(
+                                () ->
+                                        new ResponseStatusException(
+                                                HttpStatus.NOT_FOUND, "Tenant not found"));
+        TenantRecord updated = existing.withMetadataHash(metadataHash);
+        dynamoDbClient.putItem(
+                PutItemRequest.builder()
+                        .tableName(tableName)
+                        .item(updated.toItem())
+                        .build());
     }
 
     TenantResponse toResponse(TenantRecord tenant) {

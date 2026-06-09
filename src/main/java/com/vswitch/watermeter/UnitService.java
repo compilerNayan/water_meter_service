@@ -7,7 +7,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -28,15 +30,18 @@ public class UnitService {
     private final DeviceFacade deviceFacade;
     private final String tableName;
     private final String tenantIdIndexName;
+    private final TenantMetadataService tenantMetadataService;
 
     UnitService(
             DynamoDbClient dynamoDbClient,
             DeviceFacade deviceFacade,
-            @Value("${units.table.name:WaterMeterUnits}") String tableName) {
+            @Value("${units.table.name:WaterMeterUnits}") String tableName,
+            @Autowired @Lazy TenantMetadataService tenantMetadataService) {
         this.dynamoDbClient = dynamoDbClient;
         this.deviceFacade = deviceFacade;
         this.tableName = tableName;
         this.tenantIdIndexName = "tenantId-index";
+        this.tenantMetadataService = tenantMetadataService;
     }
 
     UnitResponse createUnit(String tenantId, CreateUnitRequest request) {
@@ -76,6 +81,7 @@ public class UnitService {
         deviceFacade.initializeDeviceState(deviceId, tenantId);
         deviceFacade.initializeDeviceConfig(deviceId, tenantId);
 
+        tenantMetadataService.recomputeAndPersist(tenantId);
         return unit.toResponse();
     }
 

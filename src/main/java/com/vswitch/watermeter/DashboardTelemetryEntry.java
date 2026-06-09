@@ -1,18 +1,8 @@
 package com.vswitch.watermeter;
 
-public record DashboardDeviceEntry(
+public record DashboardTelemetryEntry(
         String unitId,
-        String name,
         String deviceId,
-        String flatNumber,
-        String floor,
-        String block,
-        String wing,
-        String residentName,
-        String phoneNumber,
-        String enrollmentStatus,
-        boolean maintenanceMode,
-        String maintenanceStartedAt,
         double todayLiters,
         double monthLiters,
         boolean isOnline,

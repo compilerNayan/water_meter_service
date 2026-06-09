@@ -1,5 +1,6 @@
 package com.vswitch.watermeter;
 
+import java.util.HashMap;
 import java.util.Map;
 
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
@@ -10,7 +11,8 @@ public record TenantRecord(
         String ownerUserId,
         String structure,
         String createdAt,
-        String updatedAt) {
+        String updatedAt,
+        String metadataHash) {
 
     static TenantRecord fromItem(Map<String, AttributeValue> item) {
         return new TenantRecord(
@@ -19,17 +21,27 @@ public record TenantRecord(
                 stringValue(item, "ownerUserId"),
                 stringValue(item, "structure"),
                 stringValue(item, "createdAt"),
-                stringValue(item, "updatedAt"));
+                stringValue(item, "updatedAt"),
+                stringValue(item, "metadataHash"));
     }
 
     Map<String, AttributeValue> toItem() {
-        return Map.ofEntries(
-                Map.entry("tenantId", AttributeValue.builder().s(tenantId).build()),
-                Map.entry("name", AttributeValue.builder().s(name).build()),
-                Map.entry("ownerUserId", AttributeValue.builder().s(ownerUserId).build()),
-                Map.entry("structure", AttributeValue.builder().s(structure).build()),
-                Map.entry("createdAt", AttributeValue.builder().s(createdAt).build()),
-                Map.entry("updatedAt", AttributeValue.builder().s(updatedAt).build()));
+        Map<String, AttributeValue> item = new HashMap<>();
+        item.put("tenantId", AttributeValue.builder().s(tenantId).build());
+        item.put("name", AttributeValue.builder().s(name).build());
+        item.put("ownerUserId", AttributeValue.builder().s(ownerUserId).build());
+        item.put("structure", AttributeValue.builder().s(structure).build());
+        item.put("createdAt", AttributeValue.builder().s(createdAt).build());
+        item.put("updatedAt", AttributeValue.builder().s(updatedAt).build());
+        if (metadataHash != null && !metadataHash.isBlank()) {
+            item.put("metadataHash", AttributeValue.builder().s(metadataHash).build());
+        }
+        return item;
+    }
+
+    TenantRecord withMetadataHash(String hash) {
+        return new TenantRecord(
+                tenantId, name, ownerUserId, structure, createdAt, updatedAt, hash);
     }
 
     private static String stringValue(Map<String, AttributeValue> item, String key) {

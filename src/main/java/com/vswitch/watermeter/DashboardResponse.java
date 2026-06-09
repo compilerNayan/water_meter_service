@@ -3,8 +3,6 @@ package com.vswitch.watermeter;
 import java.util.List;
 
 public record DashboardResponse(
-        String tenantId,
-        String buildingName,
-        StructureDto structure,
+        String metadataHash,
         String generatedAt,
-        List<DashboardDeviceEntry> devices) {}
+        List<DashboardTelemetryEntry> devices) {}

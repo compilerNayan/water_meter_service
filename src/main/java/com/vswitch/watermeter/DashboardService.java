@@ -23,46 +23,41 @@ public class DashboardService {
     private static final Duration OFFLINE_THRESHOLD = Duration.ofMinutes(15);
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
-    private final TenantService tenantService;
     private final UnitService unitService;
     private final TelemetryIngestionService telemetryIngestionService;
     private final WaterReadingService waterReadingService;
     private final DeviceFacade deviceFacade;
+    private final TenantMetadataService tenantMetadataService;
 
     DashboardService(
-            TenantService tenantService,
             UnitService unitService,
             TelemetryIngestionService telemetryIngestionService,
             WaterReadingService waterReadingService,
-            DeviceFacade deviceFacade) {
-        this.tenantService = tenantService;
+            DeviceFacade deviceFacade,
+            TenantMetadataService tenantMetadataService) {
         this.unitService = unitService;
         this.telemetryIngestionService = telemetryIngestionService;
         this.waterReadingService = waterReadingService;
         this.deviceFacade = deviceFacade;
+        this.tenantMetadataService = tenantMetadataService;
     }
 
     DashboardResponse getDashboard(String tenantId) {
-        TenantResponse tenant = tenantService.getTenant(tenantId);
         List<UnitRecord> units = unitService.listUnitRecords(tenantId);
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
         YearMonth month = YearMonth.from(today);
         String generatedAt = Instant.now().toString();
+        String metadataHash = tenantMetadataService.getHash(tenantId).metadataHash();
 
-        List<DashboardDeviceEntry> devices = new ArrayList<>();
+        List<DashboardTelemetryEntry> devices = new ArrayList<>();
         for (UnitRecord unit : units) {
-            devices.add(buildDeviceEntry(unit, tenantId, today, month));
+            devices.add(buildTelemetryEntry(unit, tenantId, today, month));
         }
 
-        return new DashboardResponse(
-                tenant.tenantId(),
-                tenant.name(),
-                tenant.structure(),
-                generatedAt,
-                devices);
+        return new DashboardResponse(metadataHash, generatedAt, devices);
     }
 
-    private DashboardDeviceEntry buildDeviceEntry(
+    private DashboardTelemetryEntry buildTelemetryEntry(
             UnitRecord unit, String tenantId, LocalDate today, YearMonth month) {
         String deviceId = unit.deviceId();
         double todayLiters = waterReadingService.getTodayUsedLiters(deviceId, tenantId);
@@ -86,19 +81,9 @@ public class DashboardService {
         boolean hasAlert =
                 DeviceStateRecord.STATUS_LEAK_SUSPECTED.equals(status) || !isOnline;
 
-        return new DashboardDeviceEntry(
+        return new DashboardTelemetryEntry(
                 unit.unitId(),
-                unit.name(),
                 deviceId,
-                emptyToNull(unit.flatNumber()),
-                emptyToNull(unit.floor()),
-                emptyToNull(unit.block()),
-                emptyToNull(unit.wing()),
-                emptyToNull(unit.residentName()),
-                emptyToNull(unit.phoneNumber()),
-                unit.enrollmentStatus(),
-                false,
-                null,
                 todayLiters,
                 monthLiters,
                 isOnline,
