@@ -45,6 +45,27 @@ Resources:
         - AttributeName: serialNumber
           KeyType: HASH
 
+  WaterMeterUnitsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: WaterMeterUnits
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: unitId
+          AttributeType: S
+        - AttributeName: tenantId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: unitId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: tenantId-index
+          KeySchema:
+            - AttributeName: tenantId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
   WaterMeterServiceFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -56,6 +77,7 @@ Resources:
           USERS_TABLE_NAME: WaterMeterUsers
           TENANTS_TABLE_NAME: WaterMeterTenants
           PRE_ENROLL_TABLE_NAME: WaterMeterDevicePreEnrollments
+          UNITS_TABLE_NAME: WaterMeterUnits
           COGNITO_ISSUER_URI: https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_vm19Xv95r
       Policies:
         - DynamoDBCrudPolicy:
@@ -66,6 +88,8 @@ Resources:
             TableName: WaterMeterTenants
         - DynamoDBCrudPolicy:
             TableName: WaterMeterDevicePreEnrollments
+        - DynamoDBCrudPolicy:
+            TableName: WaterMeterUnits
       Events:
         ProxyApi:
           Type: Api

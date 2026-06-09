@@ -15,8 +15,11 @@ Spring Boot REST API packaged for AWS Lambda behind API Gateway.
 | POST | `/tenants/{tenantId}/building` | Cognito JWT (owner) | Save building name + structure; completes onboarding |
 | PUT | `/tenants/{tenantId}/structure` | Cognito JWT (owner) | Update building layout |
 | POST | `/tenants/{tenantId}/devices/pre-enroll` | Cognito JWT | Reserve device serial for tenant (pending enrollment) |
+| POST | `/tenants/{tenantId}/units` | Cognito JWT | Create unit with metadata after enrollment starts |
+| GET | `/tenants/{tenantId}/units` | Cognito JWT | List units for tenant |
+| GET | `/tenants/{tenantId}/devices/{deviceId}/enrollment-status` | Cognito JWT | Enrollment completion (placeholder) |
 
-**DynamoDB tables:** `WaterMeterUsers` (PK `userId`), `WaterMeterTenants` (PK `tenantId`), `WaterMeterDevicePreEnrollments` (PK `serialNumber`)
+**DynamoDB tables:** `WaterMeterUsers` (PK `userId`), `WaterMeterTenants` (PK `tenantId`), `WaterMeterDevicePreEnrollments` (PK `serialNumber`), `WaterMeterUnits` (PK `unitId`, GSI `tenantId-index`)
 
 **Cognito issuer:** `https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_vm19Xv95r`
 
