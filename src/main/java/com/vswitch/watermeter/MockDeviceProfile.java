@@ -6,7 +6,7 @@ public record MockDeviceProfile(
         AnomalyType anomalyType,
         int seed) {
 
-    enum AnomalyType {
+    public enum AnomalyType {
         NORMAL,
         LEAK_BURST,
         VALVE_MISMATCH,

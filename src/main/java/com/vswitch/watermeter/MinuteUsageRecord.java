@@ -13,7 +13,7 @@ public record MinuteUsageRecord(
         double valveTargetPercent,
         long expiresAt) {
 
-    static String minuteKeyFor(java.time.Instant instant) {
+    public static String minuteKeyFor(java.time.Instant instant) {
         return "minute#" + instant.toString();
     }
 
@@ -28,7 +28,7 @@ public record MinuteUsageRecord(
                 longValue(item, "expiresAt"));
     }
 
-    Map<String, AttributeValue> toItem() {
+    public Map<String, AttributeValue> toItem() {
         return Map.of(
                 "deviceId", AttributeValue.builder().s(deviceId).build(),
                 "minuteKey", AttributeValue.builder().s(minuteKey).build(),

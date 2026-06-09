@@ -35,7 +35,7 @@ public class DeviceStore {
     private final String dailyUsageTable;
     private final String deviceConfigTable;
 
-    DeviceStore(
+    public DeviceStore(
             DynamoDbClient dynamoDbClient,
             @Value("${device.state.table.name:WaterMeterDeviceState}") String deviceStateTable,
             @Value("${minute.usage.table.name:WaterMeterMinuteUsage}") String minuteUsageTable,
@@ -48,7 +48,7 @@ public class DeviceStore {
         this.deviceConfigTable = deviceConfigTable;
     }
 
-    Optional<DeviceStateRecord> findDeviceState(String deviceId) {
+    public Optional<DeviceStateRecord> findDeviceState(String deviceId) {
         var response =
                 dynamoDbClient.getItem(
                         GetItemRequest.builder()
@@ -96,7 +96,7 @@ public class DeviceStore {
                         .build());
     }
 
-    Optional<DailyUsageRecord> findDailyUsage(String tenantId, String usageKey) {
+    public Optional<DailyUsageRecord> findDailyUsage(String tenantId, String usageKey) {
         var response =
                 dynamoDbClient.getItem(
                         GetItemRequest.builder()

@@ -37,7 +37,7 @@ public record DeviceConfigRecord(
                 now);
     }
 
-    static DeviceConfigRecord fromItem(Map<String, AttributeValue> item) {
+    public static DeviceConfigRecord fromItem(Map<String, AttributeValue> item) {
         return new DeviceConfigRecord(
                 stringValue(item, "deviceId"),
                 stringValue(item, "tenantId"),
@@ -50,7 +50,7 @@ public record DeviceConfigRecord(
                 stringValue(item, "updatedAt"));
     }
 
-    Map<String, AttributeValue> toItem() {
+    public Map<String, AttributeValue> toItem() {
         return Map.of(
                 "deviceId", AttributeValue.builder().s(deviceId).build(),
                 "tenantId", AttributeValue.builder().s(tenantId).build(),

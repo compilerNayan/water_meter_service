@@ -17,7 +17,7 @@ public record DailyUsageRecord(
         double peakHourLiters,
         String updatedAt) {
 
-    static String usageKeyFor(String date, String deviceId) {
+    public static String usageKeyFor(String date, String deviceId) {
         return date + "#" + deviceId;
     }
 
@@ -35,7 +35,7 @@ public record DailyUsageRecord(
                 stringValue(item, "updatedAt"));
     }
 
-    Map<String, AttributeValue> toItem() {
+    public Map<String, AttributeValue> toItem() {
         Map<String, AttributeValue> item = new HashMap<>();
         item.put("tenantId", AttributeValue.builder().s(tenantId).build());
         item.put("usageKey", AttributeValue.builder().s(usageKey).build());

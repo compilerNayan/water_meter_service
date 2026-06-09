@@ -18,12 +18,12 @@ public record DeviceStateRecord(
         String mockProfile,
         String updatedAt) {
 
-    static final String STATUS_FLOWING = "flowing";
-    static final String STATUS_IDLE = "idle";
-    static final String STATUS_OFFLINE = "offline";
-    static final String STATUS_LEAK_SUSPECTED = "leak_suspected";
+    public static final String STATUS_FLOWING = "flowing";
+    public static final String STATUS_IDLE = "idle";
+    public static final String STATUS_OFFLINE = "offline";
+    public static final String STATUS_LEAK_SUSPECTED = "leak_suspected";
 
-    static DeviceStateRecord fromItem(Map<String, AttributeValue> item) {
+    public static DeviceStateRecord fromItem(Map<String, AttributeValue> item) {
         return new DeviceStateRecord(
                 stringValue(item, "deviceId"),
                 stringValue(item, "tenantId"),
@@ -38,7 +38,7 @@ public record DeviceStateRecord(
                 stringValue(item, "updatedAt"));
     }
 
-    Map<String, AttributeValue> toItem() {
+    public Map<String, AttributeValue> toItem() {
         Map<String, AttributeValue> item = new HashMap<>();
         item.put("deviceId", AttributeValue.builder().s(deviceId).build());
         item.put("tenantId", AttributeValue.builder().s(tenantId).build());

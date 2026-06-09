@@ -32,7 +32,7 @@ public class MockDeviceFacade implements DeviceFacade {
 
     private final DeviceStore deviceStore;
 
-    MockDeviceFacade(DeviceStore deviceStore) {
+    public MockDeviceFacade(DeviceStore deviceStore) {
         this.deviceStore = deviceStore;
     }
 
