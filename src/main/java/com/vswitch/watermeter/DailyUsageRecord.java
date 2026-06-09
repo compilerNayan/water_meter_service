@@ -21,7 +21,7 @@ public record DailyUsageRecord(
         return date + "#" + deviceId;
     }
 
-    static DailyUsageRecord fromItem(Map<String, AttributeValue> item) {
+    public static DailyUsageRecord fromItem(Map<String, AttributeValue> item) {
         return new DailyUsageRecord(
                 stringValue(item, "tenantId"),
                 stringValue(item, "usageKey"),
