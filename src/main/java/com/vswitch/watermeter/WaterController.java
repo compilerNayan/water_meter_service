@@ -16,14 +16,17 @@ import org.springframework.web.bind.annotation.RestController;
 public class WaterController {
 
     private final WaterReadingService waterReadingService;
+    private final QuotaService quotaService;
     private final UnitService unitService;
     private final UserService userService;
 
     WaterController(
             WaterReadingService waterReadingService,
+            QuotaService quotaService,
             UnitService unitService,
             UserService userService) {
         this.waterReadingService = waterReadingService;
+        this.quotaService = quotaService;
         this.unitService = unitService;
         this.userService = userService;
     }
@@ -90,7 +93,7 @@ public class WaterController {
             @PathVariable String tenantId,
             @PathVariable String deviceId) {
         requireDevice(tenantId, deviceId, jwt);
-        return waterReadingService.getValveState(deviceId);
+        return waterReadingService.getValveState(deviceId, tenantId);
     }
 
     @PutMapping("/tenants/{tenantId}/devices/{deviceId}/water/valve")
@@ -101,6 +104,25 @@ public class WaterController {
             @RequestBody ValveUpdateRequest request) {
         requireDevice(tenantId, deviceId, jwt);
         return waterReadingService.updateValve(deviceId, request);
+    }
+
+    @GetMapping("/tenants/{tenantId}/devices/{deviceId}/water/quota")
+    QuotaResponse getQuota(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable String tenantId,
+            @PathVariable String deviceId) {
+        requireDevice(tenantId, deviceId, jwt);
+        return quotaService.getQuota(deviceId, tenantId);
+    }
+
+    @PutMapping("/tenants/{tenantId}/devices/{deviceId}/water/quota")
+    QuotaResponse updateQuota(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable String tenantId,
+            @PathVariable String deviceId,
+            @RequestBody QuotaUpdateRequest request) {
+        requireDevice(tenantId, deviceId, jwt);
+        return quotaService.updateQuota(deviceId, tenantId, request);
     }
 
     private void requireDevice(String tenantId, String deviceId, Jwt jwt) {

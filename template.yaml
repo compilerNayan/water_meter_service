@@ -113,6 +113,18 @@ Resources:
         - AttributeName: usageKey
           KeyType: RANGE
 
+  WaterMeterDeviceConfigTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: WaterMeterDeviceConfig
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: deviceId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: deviceId
+          KeyType: HASH
+
   WaterMeterServiceFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -128,6 +140,7 @@ Resources:
           DEVICE_STATE_TABLE_NAME: WaterMeterDeviceState
           MINUTE_USAGE_TABLE_NAME: WaterMeterMinuteUsage
           DAILY_USAGE_TABLE_NAME: WaterMeterDailyUsage
+          DEVICE_CONFIG_TABLE_NAME: WaterMeterDeviceConfig
           COGNITO_ISSUER_URI: https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_vm19Xv95r
       Policies:
         - DynamoDBCrudPolicy:
@@ -146,6 +159,8 @@ Resources:
             TableName: WaterMeterMinuteUsage
         - DynamoDBCrudPolicy:
             TableName: WaterMeterDailyUsage
+        - DynamoDBCrudPolicy:
+            TableName: WaterMeterDeviceConfig
       Events:
         ProxyApi:
           Type: Api

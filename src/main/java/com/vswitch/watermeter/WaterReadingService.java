@@ -19,6 +19,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.vswitch.watermeter.device.DeviceFacade;
+import com.vswitch.watermeter.device.DeviceQuotaConfig;
+
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
@@ -32,16 +35,19 @@ public class WaterReadingService {
 
     private final DynamoDbClient dynamoDbClient;
     private final TelemetryIngestionService telemetryIngestionService;
+    private final DeviceFacade deviceFacade;
     private final String minuteUsageTable;
     private final String dailyUsageTable;
 
     WaterReadingService(
             DynamoDbClient dynamoDbClient,
             TelemetryIngestionService telemetryIngestionService,
+            DeviceFacade deviceFacade,
             @Value("${minute.usage.table.name:WaterMeterMinuteUsage}") String minuteUsageTable,
             @Value("${daily.usage.table.name:WaterMeterDailyUsage}") String dailyUsageTable) {
         this.dynamoDbClient = dynamoDbClient;
         this.telemetryIngestionService = telemetryIngestionService;
+        this.deviceFacade = deviceFacade;
         this.minuteUsageTable = minuteUsageTable;
         this.dailyUsageTable = dailyUsageTable;
     }
@@ -139,9 +145,18 @@ public class WaterReadingService {
         return new HourlyPatternResponse("liters", hours);
     }
 
-    ValveStateResponse getValveState(String deviceId) {
+    double getTodayUsedLiters(String deviceId, String tenantId) {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        String usageKey = DailyUsageRecord.usageKeyFor(today.format(DATE_FORMAT), deviceId);
+        return telemetryIngestionService
+                .findDailyUsage(tenantId, usageKey)
+                .map(DailyUsageRecord::totalLiters)
+                .orElse(0.0);
+    }
+
+    ValveStateResponse getValveState(String deviceId, String tenantId) {
         DeviceStateRecord state = requireDeviceState(deviceId);
-        return toValveResponse(state);
+        return toValveResponse(state, tenantId);
     }
 
     ValveStateResponse updateValve(String deviceId, ValveUpdateRequest request) {
@@ -149,13 +164,15 @@ public class WaterReadingService {
             DeviceStateRecord state = requireDeviceState(deviceId);
             return toValveResponse(
                     telemetryIngestionService.updateValveTarget(
-                            deviceId, state.lastUserPressurePercent()));
+                            deviceId, state.lastUserPressurePercent()),
+                    requireTenantId(deviceId));
         }
         if (request.pressurePercent() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "pressurePercent required");
         }
         return toValveResponse(
-                telemetryIngestionService.updateValveTarget(deviceId, request.pressurePercent()));
+                telemetryIngestionService.updateValveTarget(deviceId, request.pressurePercent()),
+                requireTenantId(deviceId));
     }
 
     private DeviceStateRecord requireDeviceState(String deviceId) {
@@ -178,9 +195,33 @@ public class WaterReadingService {
         return state.status();
     }
 
-    private ValveStateResponse toValveResponse(DeviceStateRecord state) {
+    private ValveStateResponse toValveResponse(DeviceStateRecord state, String tenantId) {
         boolean isOff = state.valveTargetPercent() <= 0;
         double effective = isOff ? 0 : state.valveActualPercent();
+        String controlMode = "manual";
+        Double quotaCapPercent = null;
+
+        try {
+            DeviceQuotaConfig config = deviceFacade.getQuotaConfig(state.deviceId());
+            if (config.enabled()) {
+                double used = getTodayUsedLiters(state.deviceId(), tenantId);
+                QuotaCalculator.QuotaCapResult cap =
+                        QuotaCalculator.computeCap(
+                                config.steps(), used, config.dailyLimitLiters());
+                quotaCapPercent = cap.capPercent();
+                if (quotaCapPercent != null) {
+                    controlMode = "quota";
+                    if (quotaCapPercent == 0) {
+                        effective = 0;
+                    } else if (!isOff) {
+                        effective = Math.min(effective, quotaCapPercent);
+                    }
+                }
+            }
+        } catch (ResponseStatusException ignored) {
+            // No device config yet — quota not applied.
+        }
+
         return new ValveStateResponse(
                 state.deviceId(),
                 state.updatedAt(),
@@ -188,8 +229,8 @@ public class WaterReadingService {
                 state.valveActualPercent(),
                 state.lastUserPressurePercent(),
                 isOff,
-                "manual",
-                null,
+                controlMode,
+                quotaCapPercent,
                 effective);
     }
 
