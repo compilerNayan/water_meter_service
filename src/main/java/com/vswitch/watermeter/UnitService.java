@@ -17,18 +17,22 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
+import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 
 @Service
 public class UnitService {
 
     private final DynamoDbClient dynamoDbClient;
+    private final TelemetryIngestionService telemetryIngestionService;
     private final String tableName;
     private final String tenantIdIndexName;
 
     UnitService(
             DynamoDbClient dynamoDbClient,
+            TelemetryIngestionService telemetryIngestionService,
             @Value("${units.table.name:WaterMeterUnits}") String tableName) {
         this.dynamoDbClient = dynamoDbClient;
+        this.telemetryIngestionService = telemetryIngestionService;
         this.tableName = tableName;
         this.tenantIdIndexName = "tenantId-index";
     }
@@ -67,10 +71,28 @@ public class UnitService {
         dynamoDbClient.putItem(
                 PutItemRequest.builder().tableName(tableName).item(unit.toItem()).build());
 
+        telemetryIngestionService.initializeDeviceState(deviceId, tenantId);
+
         return unit.toResponse();
     }
 
+    List<UnitRecord> listAllUnits() {
+        var response =
+                dynamoDbClient.scan(ScanRequest.builder().tableName(tableName).build());
+        List<UnitRecord> units = new ArrayList<>();
+        for (var item : response.items()) {
+            units.add(UnitRecord.fromItem(item));
+        }
+        return units;
+    }
+
     UnitListResponse listUnits(String tenantId) {
+        List<UnitResponse> units =
+                listUnitRecords(tenantId).stream().map(UnitRecord::toResponse).toList();
+        return new UnitListResponse(units);
+    }
+
+    List<UnitRecord> listUnitRecords(String tenantId) {
         var response =
                 dynamoDbClient.query(
                         QueryRequest.builder()
@@ -83,11 +105,11 @@ public class UnitService {
                                                 AttributeValue.builder().s(tenantId).build()))
                                 .build());
 
-        List<UnitResponse> units = new ArrayList<>();
+        List<UnitRecord> units = new ArrayList<>();
         for (var item : response.items()) {
-            units.add(UnitRecord.fromItem(item).toResponse());
+            units.add(UnitRecord.fromItem(item));
         }
-        return new UnitListResponse(units);
+        return units;
     }
 
     EnrollmentStatusResponse getEnrollmentStatus(String tenantId, String deviceId) {
