@@ -1,0 +1,28 @@
+package com.vswitch.watermeter;
+
+public record DashboardDeviceEntry(
+        String unitId,
+        String name,
+        String deviceId,
+        String flatNumber,
+        String floor,
+        String block,
+        String wing,
+        String residentName,
+        String phoneNumber,
+        String enrollmentStatus,
+        boolean maintenanceMode,
+        String maintenanceStartedAt,
+        double todayLiters,
+        double monthLiters,
+        boolean isOnline,
+        String lastSeenAt,
+        String status,
+        double flowRateLpm,
+        boolean quotaEnabled,
+        double dailyLimitLiters,
+        double quotaUsedLiters,
+        Double quotaPercent,
+        double valveOpenPercent,
+        boolean valveIsOff,
+        boolean hasAlert) {}
