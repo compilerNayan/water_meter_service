@@ -2,6 +2,7 @@ package com.vswitch.watermeter;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -61,21 +63,12 @@ class TelemetryIngestionServiceTest {
                         now,
                         "NORMAL",
                         now);
-        DeviceConfigRecord config =
-                DeviceConfigRecord.defaults("WM000001", "k3m9x2a", now, 80.0, 80.0);
+        AtomicReference<DeviceConfigRecord> configRef =
+                new AtomicReference<>(
+                        DeviceConfigRecord.defaults("WM000001", "k3m9x2a", now, 80.0, 80.0));
 
-        when(dynamoDbClient.getItem(any(GetItemRequest.class)))
-                .thenAnswer(
-                        invocation -> {
-                            GetItemRequest req = invocation.getArgument(0);
-                            if ("WaterMeterDeviceConfig".equals(req.tableName())) {
-                                return GetItemResponse.builder().item(config.toItem()).build();
-                            }
-                            if (req.key().containsKey("usageKey")) {
-                                return GetItemResponse.builder().build();
-                            }
-                            return GetItemResponse.builder().item(state.toItem()).build();
-                        });
+        stubConfigAndStateReads(state, configRef);
+        stubConfigWrites(configRef);
 
         ValveStateResponse response =
                 facade.setValveTarget(
@@ -88,6 +81,7 @@ class TelemetryIngestionServiceTest {
         verify(dynamoDbClient).putItem(putCaptor.capture());
         DeviceConfigRecord persisted =
                 DeviceConfigRecord.fromItem(putCaptor.getValue().item());
+        assertEquals(0, persisted.valveTargetPercent());
         assertEquals(80, persisted.lastUserPressurePercent());
     }
 
@@ -107,23 +101,12 @@ class TelemetryIngestionServiceTest {
                         now,
                         "NORMAL",
                         now);
-        DeviceConfigRecord config =
-                DeviceConfigRecord.defaults("WM000001", "k3m9x2a", now, 0.0, 80.0);
+        AtomicReference<DeviceConfigRecord> configRef =
+                new AtomicReference<>(
+                        DeviceConfigRecord.defaults("WM000001", "k3m9x2a", now, 0.0, 80.0));
 
-        when(dynamoDbClient.getItem(any(GetItemRequest.class)))
-                .thenAnswer(
-                        invocation -> {
-                            GetItemRequest req = invocation.getArgument(0);
-                            Map<String, AttributeValue> key = req.key();
-                            if (key.containsKey("usageKey")) {
-                                return GetItemResponse.builder().build();
-                            }
-                            AttributeValue deviceId = key.get("deviceId");
-                            if (deviceId != null && "WaterMeterDeviceConfig".equals(req.tableName())) {
-                                return GetItemResponse.builder().item(config.toItem()).build();
-                            }
-                            return GetItemResponse.builder().item(state.toItem()).build();
-                        });
+        stubConfigAndStateReads(state, configRef);
+        stubConfigWrites(configRef);
 
         ValveStateResponse response =
                 facade.setValveTarget(
@@ -131,5 +114,36 @@ class TelemetryIngestionServiceTest {
 
         assertEquals(55, response.targetPressurePercent());
         assertEquals(55, response.lastUserPressurePercent());
+    }
+
+    private void stubConfigAndStateReads(
+            DeviceStateRecord state, AtomicReference<DeviceConfigRecord> configRef) {
+        when(dynamoDbClient.getItem(any(GetItemRequest.class)))
+                .thenAnswer(
+                        invocation -> {
+                            GetItemRequest req = invocation.getArgument(0);
+                            if ("WaterMeterDeviceConfig".equals(req.tableName())) {
+                                return GetItemResponse.builder()
+                                        .item(configRef.get().toItem())
+                                        .build();
+                            }
+                            if (req.key().containsKey("usageKey")) {
+                                return GetItemResponse.builder().build();
+                            }
+                            return GetItemResponse.builder().item(state.toItem()).build();
+                        });
+    }
+
+    private void stubConfigWrites(AtomicReference<DeviceConfigRecord> configRef) {
+        doAnswer(
+                        invocation -> {
+                            PutItemRequest put = invocation.getArgument(0);
+                            if ("WaterMeterDeviceConfig".equals(put.tableName())) {
+                                configRef.set(DeviceConfigRecord.fromItem(put.item()));
+                            }
+                            return null;
+                        })
+                .when(dynamoDbClient)
+                .putItem(any(PutItemRequest.class));
     }
 }
