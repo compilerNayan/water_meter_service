@@ -174,7 +174,8 @@ Resources:
           MINUTE_USAGE_TABLE_NAME: WaterMeterMinuteUsage
           DAILY_USAGE_TABLE_NAME: WaterMeterDailyUsage
           MOCK_TELEMETRY_ENABLED: "true"
-          MOCK_ENROLLMENT_DELAY_MINUTES: "3"
+          MOCK_HISTORY_BACKFILL_DAYS: "10"
+          MOCK_HISTORY_TTL_DAYS: "15"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: WaterMeterUnits

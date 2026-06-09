@@ -7,7 +7,7 @@ public class MockDeviceProfileFactory {
 
     MockDeviceProfile forDevice(String deviceId) {
         int seed = Math.abs(deviceId.hashCode());
-        double dailyTarget = 500 + (seed % 701);
+        double dailyTarget = 600 + (seed % 601);
         MockDeviceProfile.AnomalyType anomaly = MockDeviceProfile.AnomalyType.NORMAL;
         int mod = seed % 100;
         if (mod < 8) {

@@ -1,6 +1,5 @@
 package com.vswitch.watermeter;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -21,19 +20,16 @@ public class MockTelemetrySchedulerService {
     private final TelemetryIngestionService ingestionService;
     private final MockDeviceProfileFactory profileFactory;
     private final boolean enabled;
-    private final Duration enrollmentDelay;
 
     MockTelemetrySchedulerService(
             UnitService unitService,
             TelemetryIngestionService ingestionService,
             MockDeviceProfileFactory profileFactory,
-            @Value("${mock.telemetry.enabled:true}") boolean enabled,
-            @Value("${mock.enrollment.delay.minutes:3}") int enrollmentDelayMinutes) {
+            @Value("${mock.telemetry.enabled:true}") boolean enabled) {
         this.unitService = unitService;
         this.ingestionService = ingestionService;
         this.profileFactory = profileFactory;
         this.enabled = enabled;
-        this.enrollmentDelay = Duration.ofMinutes(Math.max(1, enrollmentDelayMinutes));
     }
 
     void runScheduledIngestion() {
@@ -50,11 +46,10 @@ public class MockTelemetrySchedulerService {
 
         for (UnitRecord unit : units) {
             try {
-                UnitRecord current = unitService.promoteEnrollmentIfReady(unit, enrollmentDelay);
-                if (!UnitRecord.STATUS_ENROLLED.equals(current.enrollmentStatus())) {
+                if (!UnitRecord.STATUS_ENROLLED.equals(unit.enrollmentStatus())) {
                     continue;
                 }
-                ingestForUnit(current, now, zoned);
+                ingestForUnit(unit, now, zoned);
             } catch (Exception e) {
                 log.warn("Failed mock ingestion for device {}", unit.deviceId(), e);
             }

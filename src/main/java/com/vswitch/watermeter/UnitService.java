@@ -1,6 +1,5 @@
 package com.vswitch.watermeter;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,15 +24,18 @@ public class UnitService {
 
     private final DynamoDbClient dynamoDbClient;
     private final TelemetryIngestionService telemetryIngestionService;
+    private final MockHistoricalBackfillService historicalBackfillService;
     private final String tableName;
     private final String tenantIdIndexName;
 
     UnitService(
             DynamoDbClient dynamoDbClient,
             TelemetryIngestionService telemetryIngestionService,
+            MockHistoricalBackfillService historicalBackfillService,
             @Value("${units.table.name:WaterMeterUnits}") String tableName) {
         this.dynamoDbClient = dynamoDbClient;
         this.telemetryIngestionService = telemetryIngestionService;
+        this.historicalBackfillService = historicalBackfillService;
         this.tableName = tableName;
         this.tenantIdIndexName = "tenantId-index";
     }
@@ -64,7 +66,7 @@ public class UnitService {
                         nullToEmpty(request.residentName()),
                         nullToEmpty(request.phoneNumber()),
                         nullToEmpty(request.notes()),
-                        UnitRecord.STATUS_PENDING,
+                        UnitRecord.STATUS_ENROLLED,
                         inviteCode,
                         now,
                         now);
@@ -73,6 +75,7 @@ public class UnitService {
                 PutItemRequest.builder().tableName(tableName).item(unit.toItem()).build());
 
         telemetryIngestionService.initializeDeviceState(deviceId, tenantId);
+        historicalBackfillService.backfillIfNeeded(unit);
 
         return unit.toResponse();
     }
@@ -123,52 +126,6 @@ public class UnitService {
 
         boolean enrolled = UnitRecord.STATUS_ENROLLED.equals(unit.enrollmentStatus());
         return new EnrollmentStatusResponse(enrolled, unit.enrollmentStatus());
-    }
-
-    /**
-     * Simulates device lifecycle/enrolled MQTT message after the configured delay.
-     * Called by the mock telemetry scheduler until real IoT enrollment is wired.
-     */
-    UnitRecord promoteEnrollmentIfReady(UnitRecord unit, Duration delay) {
-        if (UnitRecord.STATUS_ENROLLED.equals(unit.enrollmentStatus())) {
-            return unit;
-        }
-        if (unit.createdAt() == null || unit.createdAt().isBlank()) {
-            return unit;
-        }
-        Instant created = Instant.parse(unit.createdAt());
-        if (Duration.between(created, Instant.now()).compareTo(delay) < 0) {
-            return unit;
-        }
-        return markEnrolled(unit);
-    }
-
-    UnitRecord markEnrolled(UnitRecord unit) {
-        if (UnitRecord.STATUS_ENROLLED.equals(unit.enrollmentStatus())) {
-            return unit;
-        }
-        String now = Instant.now().toString();
-        UnitRecord updated =
-                new UnitRecord(
-                        unit.unitId(),
-                        unit.tenantId(),
-                        unit.deviceId(),
-                        unit.name(),
-                        unit.flatNumber(),
-                        unit.floor(),
-                        unit.block(),
-                        unit.wing(),
-                        unit.residentName(),
-                        unit.phoneNumber(),
-                        unit.notes(),
-                        UnitRecord.STATUS_ENROLLED,
-                        unit.unitInviteCode(),
-                        unit.createdAt(),
-                        now);
-
-        dynamoDbClient.putItem(
-                PutItemRequest.builder().tableName(tableName).item(updated.toItem()).build());
-        return updated;
     }
 
     Optional<UnitRecord> findByTenantAndDeviceId(String tenantId, String deviceId) {

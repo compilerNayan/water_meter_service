@@ -3,6 +3,7 @@ package com.vswitch.watermeter;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -265,6 +266,91 @@ public class TelemetryIngestionService {
             return Optional.empty();
         }
         return Optional.of(DailyUsageRecord.fromItem(response.item()));
+    }
+
+    void writeHistoricalHour(
+            UnitRecord unit,
+            Instant hourStart,
+            double volumeLiters,
+            double avgFlowRateLpm,
+            double valveTargetPercent,
+            String status,
+            long expiresAtEpochSeconds) {
+        String minuteKey = MinuteUsageRecord.minuteKeyFor(hourStart.truncatedTo(ChronoUnit.HOURS));
+
+        MinuteUsageRecord minuteRecord =
+                new MinuteUsageRecord(
+                        unit.deviceId(),
+                        minuteKey,
+                        unit.tenantId(),
+                        volumeLiters,
+                        avgFlowRateLpm,
+                        valveTargetPercent,
+                        expiresAtEpochSeconds);
+
+        dynamoDbClient.putItem(
+                PutItemRequest.builder()
+                        .tableName(minuteUsageTable)
+                        .item(minuteRecord.toItem())
+                        .build());
+    }
+
+    void writeHistoricalDaily(
+            UnitRecord unit,
+            java.time.LocalDate date,
+            double totalLiters,
+            int peakHour,
+            double peakHourLiters) {
+        String usageKey = DailyUsageRecord.usageKeyFor(date.format(DATE_FORMAT), unit.deviceId());
+        String now = Instant.now().toString();
+        DailyUsageRecord record =
+                new DailyUsageRecord(
+                        unit.tenantId(),
+                        usageKey,
+                        unit.unitId(),
+                        unit.name(),
+                        unit.block(),
+                        unit.wing(),
+                        totalLiters,
+                        peakHour,
+                        peakHourLiters,
+                        now);
+
+        dynamoDbClient.putItem(
+                PutItemRequest.builder()
+                        .tableName(dailyUsageTable)
+                        .item(record.toItem())
+                        .build());
+    }
+
+    void applyHistoricalCumulative(String deviceId, double additionalLiters, Instant lastHour) {
+        DeviceStateRecord current =
+                findDeviceState(deviceId)
+                        .orElseThrow(
+                                () ->
+                                        new IllegalStateException(
+                                                "Device state missing for " + deviceId));
+
+        String timestamp = lastHour.toString();
+        DeviceStateRecord updated =
+                new DeviceStateRecord(
+                        deviceId,
+                        current.tenantId(),
+                        current.cumulativeLiters() + additionalLiters,
+                        0,
+                        DeviceStateRecord.STATUS_IDLE,
+                        current.valveTargetPercent(),
+                        current.valveActualPercent(),
+                        current.lastUserPressurePercent(),
+                        timestamp,
+                        current.mockProfile(),
+                        timestamp);
+
+        dynamoDbClient.putItem(
+                PutItemRequest.builder()
+                        .tableName(deviceStateTable)
+                        .item(updated.toItem())
+                        .build());
     }
 
     private static String mockProfileName(String deviceId) {

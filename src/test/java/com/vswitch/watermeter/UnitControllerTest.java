@@ -47,7 +47,7 @@ class UnitControllerTest {
                                 "Ravi Kumar",
                                 "+919876543210",
                                 "",
-                                UnitRecord.STATUS_PENDING,
+                                UnitRecord.STATUS_ENROLLED,
                                 "D205-1234"));
 
         mockMvc.perform(
@@ -69,7 +69,7 @@ class UnitControllerTest {
                                         """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value("wm-WM000001"))
-                .andExpect(jsonPath("$.enrollmentStatus").value("pending"));
+                .andExpect(jsonPath("$.enrollmentStatus").value("enrolled"));
 
         verify(userService).requireTenantMember("user-123", "k3m9x2a");
     }

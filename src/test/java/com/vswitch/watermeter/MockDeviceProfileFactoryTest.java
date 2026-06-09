@@ -23,7 +23,7 @@ class MockDeviceProfileFactoryTest {
     @Test
     void dailyTargetIsWithinExpectedRange() {
         MockDeviceProfile profile = factory.forDevice("WM000099");
-        assertTrue(profile.dailyTargetLiters() >= 500);
+        assertTrue(profile.dailyTargetLiters() >= 600);
         assertTrue(profile.dailyTargetLiters() <= 1200);
     }
 
