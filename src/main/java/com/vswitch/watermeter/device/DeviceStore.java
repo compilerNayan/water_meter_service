@@ -94,7 +94,7 @@ public class DeviceStore {
                         .build());
     }
 
-    void putTodaySlot(TodaySlotRecord record) {
+    public void putTodaySlot(TodaySlotRecord record) {
         dynamoDbClient.putItem(
                 PutItemRequest.builder()
                         .tableName(todaySlotsTable)
@@ -102,7 +102,7 @@ public class DeviceStore {
                         .build());
     }
 
-    List<TodaySlotRecord> queryTodaySlotsByLocalDate(String deviceId, String localDate) {
+    public List<TodaySlotRecord> queryTodaySlotsByLocalDate(String deviceId, String localDate) {
         List<TodaySlotRecord> records = new ArrayList<>();
         Map<String, AttributeValue> exclusiveStartKey = null;
 
@@ -133,7 +133,7 @@ public class DeviceStore {
         return records;
     }
 
-    void deleteTodaySlotsForLocalDate(String deviceId, String localDate) {
+    public void deleteTodaySlotsForLocalDate(String deviceId, String localDate) {
         for (TodaySlotRecord slot : queryTodaySlotsByLocalDate(deviceId, localDate)) {
             dynamoDbClient.deleteItem(
                     DeleteItemRequest.builder()
@@ -148,7 +148,7 @@ public class DeviceStore {
         }
     }
 
-    void putDayHistory(DayHistoryRecord record) {
+    public void putDayHistory(DayHistoryRecord record) {
         dynamoDbClient.putItem(
                 PutItemRequest.builder()
                         .tableName(dayHistoryTable)
@@ -156,7 +156,7 @@ public class DeviceStore {
                         .build());
     }
 
-    Optional<DayHistoryRecord> findDayHistory(String deviceId, LocalDate date) {
+    public Optional<DayHistoryRecord> findDayHistory(String deviceId, LocalDate date) {
         var response =
                 dynamoDbClient.getItem(
                         GetItemRequest.builder()
@@ -176,7 +176,7 @@ public class DeviceStore {
         return Optional.of(DayHistoryRecord.fromItem(response.item()));
     }
 
-    List<DayHistoryRecord> queryDayHistory(String deviceId, LocalDate from, LocalDate to) {
+    public List<DayHistoryRecord> queryDayHistory(String deviceId, LocalDate from, LocalDate to) {
         String fromKey = DayHistoryRecord.dayKeyFor(from);
         String toKey = DayHistoryRecord.dayKeyFor(to);
 
@@ -253,7 +253,7 @@ public class DeviceStore {
         return MockDeviceProfile.AnomalyType.NORMAL.name();
     }
 
-    static String formatDate(LocalDate date) {
+    public static String formatDate(LocalDate date) {
         return date.format(DATE_FORMAT);
     }
 }

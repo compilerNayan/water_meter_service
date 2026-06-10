@@ -25,7 +25,7 @@ public record DayHistoryRecord(
         return LocalDate.parse(dayKey.substring("day#".length()), DATE_FORMAT);
     }
 
-    static DayHistoryRecord fromItem(Map<String, AttributeValue> item) {
+    public static DayHistoryRecord fromItem(Map<String, AttributeValue> item) {
         return new DayHistoryRecord(
                 stringValue(item, "deviceId"),
                 stringValue(item, "dayKey"),
@@ -36,7 +36,7 @@ public record DayHistoryRecord(
                 longValue(item, "expiresAt"));
     }
 
-    Map<String, AttributeValue> toItem() {
+    public Map<String, AttributeValue> toItem() {
         return Map.of(
                 "deviceId", AttributeValue.builder().s(deviceId).build(),
                 "dayKey", AttributeValue.builder().s(dayKey).build(),

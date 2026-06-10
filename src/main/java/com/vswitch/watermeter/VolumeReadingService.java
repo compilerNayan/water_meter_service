@@ -69,7 +69,7 @@ public class VolumeReadingService {
         return new MinutesHistoryResponse(deviceId, timezone, 1, dayResponses);
     }
 
-    double getTodayUsedLiters(String deviceId, String timezone) {
+    public double getTodayUsedLiters(String deviceId, String timezone) {
         ZoneId zone = safeZone(timezone);
         LocalDate today = LocalDate.now(zone);
         int[] milliliters = loadDayMilliliters(deviceId, today, zone);
@@ -77,7 +77,7 @@ public class VolumeReadingService {
         return MinuteVolumeCsv.sumLiters(slice);
     }
 
-    double sumMonthLiters(String deviceId, String timezone) {
+    public double sumMonthLiters(String deviceId, String timezone) {
         ZoneId zone = safeZone(timezone);
         LocalDate today = LocalDate.now(zone);
         YearMonth month = YearMonth.from(today);
@@ -173,7 +173,7 @@ public class VolumeReadingService {
                         deltaPercent));
     }
 
-    double litersForCompletedDay(String deviceId, LocalDate date) {
+    public double litersForCompletedDay(String deviceId, LocalDate date) {
         return deviceStore
                 .findDayHistory(deviceId, date)
                 .map(DayHistoryRecord::totalLiters)
