@@ -12,7 +12,9 @@ public record TenantRecord(
         String structure,
         String createdAt,
         String updatedAt,
-        String metadataHash) {
+        String metadataHash,
+        String adminInviteCode,
+        String adminInviteExpiresAt) {
 
     static TenantRecord fromItem(Map<String, AttributeValue> item) {
         return new TenantRecord(
@@ -22,7 +24,9 @@ public record TenantRecord(
                 stringValue(item, "structure"),
                 stringValue(item, "createdAt"),
                 stringValue(item, "updatedAt"),
-                stringValue(item, "metadataHash"));
+                optionalString(item, "metadataHash"),
+                optionalString(item, "adminInviteCode"),
+                optionalString(item, "adminInviteExpiresAt"));
     }
 
     Map<String, AttributeValue> toItem() {
@@ -36,16 +40,53 @@ public record TenantRecord(
         if (metadataHash != null && !metadataHash.isBlank()) {
             item.put("metadataHash", AttributeValue.builder().s(metadataHash).build());
         }
+        if (adminInviteCode != null && !adminInviteCode.isBlank()) {
+            item.put("adminInviteCode", AttributeValue.builder().s(adminInviteCode).build());
+        }
+        if (adminInviteExpiresAt != null && !adminInviteExpiresAt.isBlank()) {
+            item.put(
+                    "adminInviteExpiresAt",
+                    AttributeValue.builder().s(adminInviteExpiresAt).build());
+        }
         return item;
     }
 
     TenantRecord withMetadataHash(String hash) {
         return new TenantRecord(
-                tenantId, name, ownerUserId, structure, createdAt, updatedAt, hash);
+                tenantId,
+                name,
+                ownerUserId,
+                structure,
+                createdAt,
+                updatedAt,
+                hash,
+                adminInviteCode,
+                adminInviteExpiresAt);
+    }
+
+    TenantRecord withAdminInvite(String code, String expiresAt) {
+        return new TenantRecord(
+                tenantId,
+                name,
+                ownerUserId,
+                structure,
+                createdAt,
+                updatedAt,
+                metadataHash,
+                code,
+                expiresAt);
     }
 
     private static String stringValue(Map<String, AttributeValue> item, String key) {
         AttributeValue value = item.get(key);
         return value != null && value.s() != null ? value.s() : "";
+    }
+
+    private static String optionalString(Map<String, AttributeValue> item, String key) {
+        AttributeValue value = item.get(key);
+        if (value == null || value.s() == null || value.s().isBlank()) {
+            return null;
+        }
+        return value.s();
     }
 }

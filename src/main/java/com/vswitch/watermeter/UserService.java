@@ -122,6 +122,34 @@ public class UserService {
         }
     }
 
+    void joinTenantAsCoAdmin(String userId, String tenantId) {
+        UserRecord user = requireUser(userId);
+        if (user.tenantId() != null && !user.tenantId().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "User already belongs to a tenant");
+        }
+
+        String now = Instant.now().toString();
+        UserRecord updated =
+                new UserRecord(
+                        user.userId(),
+                        user.email(),
+                        user.phone(),
+                        user.firstName(),
+                        user.lastName(),
+                        user.displayName(),
+                        tenantId,
+                        false,
+                        true,
+                        user.createdAt(),
+                        now);
+        dynamoDbClient.putItem(
+                PutItemRequest.builder()
+                        .tableName(tableName)
+                        .item(updated.toItem())
+                        .build());
+    }
+
     void completeOnboarding(String userId) {
         UserRecord user = requireUser(userId);
         if (user.onboardingComplete()) {

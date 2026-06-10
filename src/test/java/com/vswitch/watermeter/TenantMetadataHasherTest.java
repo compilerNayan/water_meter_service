@@ -48,6 +48,8 @@ class TenantMetadataHasherTest {
                 "{\"blocks\":[{\"id\":\"A\",\"label\":\"Tower A\",\"wings\":[{\"name\":\"East\",\"floorCount\":10}]}]}",
                 "2026-06-01T00:00:00Z",
                 updatedAt,
+                null,
+                null,
                 null);
     }
 

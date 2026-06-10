@@ -23,6 +23,7 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 
 @Service
 public class TenantService {
@@ -52,7 +53,8 @@ public class TenantService {
         String now = Instant.now().toString();
         String tenantId = generateUniqueTenantId();
         TenantRecord tenant =
-                new TenantRecord(tenantId, "", ownerUserId, DEFAULT_STRUCTURE, now, now, null);
+                new TenantRecord(
+                        tenantId, "", ownerUserId, DEFAULT_STRUCTURE, now, now, null, null, null);
         dynamoDbClient.putItem(
                 PutItemRequest.builder()
                         .tableName(tableName)
@@ -120,14 +122,7 @@ public class TenantService {
 
         String now = Instant.now().toString();
         TenantRecord updated =
-                new TenantRecord(
-                        tenantId,
-                        name.trim(),
-                        existing.ownerUserId(),
-                        structureJson,
-                        existing.createdAt(),
-                        now,
-                        existing.metadataHash());
+                copyWithStructure(existing, name.trim(), structureJson, now);
 
         dynamoDbClient.putItem(
                 PutItemRequest.builder()
@@ -151,15 +146,7 @@ public class TenantService {
                                                 HttpStatus.NOT_FOUND, "Tenant not found"));
 
         String now = Instant.now().toString();
-        TenantRecord updated =
-                new TenantRecord(
-                        tenantId,
-                        existing.name(),
-                        existing.ownerUserId(),
-                        structureJson,
-                        existing.createdAt(),
-                        now,
-                        existing.metadataHash());
+        TenantRecord updated = copyWithStructure(existing, existing.name(), structureJson, now);
 
         dynamoDbClient.putItem(
                 PutItemRequest.builder()
@@ -169,6 +156,54 @@ public class TenantService {
 
         tenantMetadataService.recomputeAndPersist(tenantId);
         return toResponse(updated);
+    }
+
+    AdminInviteResponse setAdminInvite(String tenantId, String inviteCode, String expiresAt) {
+        TenantRecord existing =
+                findById(tenantId)
+                        .orElseThrow(
+                                () ->
+                                        new ResponseStatusException(
+                                                HttpStatus.NOT_FOUND, "Tenant not found"));
+        String now = Instant.now().toString();
+        TenantRecord updated =
+                new TenantRecord(
+                        tenantId,
+                        existing.name(),
+                        existing.ownerUserId(),
+                        existing.structure(),
+                        existing.createdAt(),
+                        now,
+                        existing.metadataHash(),
+                        inviteCode,
+                        expiresAt);
+        dynamoDbClient.putItem(
+                PutItemRequest.builder()
+                        .tableName(tableName)
+                        .item(updated.toItem())
+                        .build());
+        return new AdminInviteResponse(inviteCode, expiresAt);
+    }
+
+    Optional<TenantRecord> findByAdminInviteCode(String inviteCode) {
+        if (inviteCode == null || inviteCode.isBlank()) {
+            return Optional.empty();
+        }
+        String normalized = inviteCode.trim().toUpperCase();
+        var response =
+                dynamoDbClient.scan(
+                        ScanRequest.builder()
+                                .tableName(tableName)
+                                .filterExpression("adminInviteCode = :code")
+                                .expressionAttributeValues(
+                                        Map.of(
+                                                ":code",
+                                                AttributeValue.builder().s(normalized).build()))
+                                .build());
+        if (response.items() == null || response.items().isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(TenantRecord.fromItem(response.items().get(0)));
     }
 
     void persistMetadataHash(String tenantId, String metadataHash) {
@@ -307,5 +342,19 @@ public class TenantService {
             return "";
         }
         return node.get(field).asText();
+    }
+
+    private static TenantRecord copyWithStructure(
+            TenantRecord existing, String name, String structureJson, String updatedAt) {
+        return new TenantRecord(
+                existing.tenantId(),
+                name,
+                existing.ownerUserId(),
+                structureJson,
+                existing.createdAt(),
+                updatedAt,
+                existing.metadataHash(),
+                existing.adminInviteCode(),
+                existing.adminInviteExpiresAt());
     }
 }
