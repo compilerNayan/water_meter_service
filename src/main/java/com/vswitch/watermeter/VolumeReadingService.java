@@ -28,7 +28,7 @@ public class VolumeReadingService {
 
     private final DeviceStore deviceStore;
 
-    VolumeReadingService(DeviceStore deviceStore) {
+    public VolumeReadingService(DeviceStore deviceStore) {
         this.deviceStore = deviceStore;
     }
 
