@@ -9,6 +9,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -30,7 +31,7 @@ class DashboardControllerTest {
 
     @Test
     void getDashboardReturnsTelemetryAndMetadataHash() throws Exception {
-        when(dashboardService.getDashboard("k3m9x2a"))
+        when(dashboardService.getDashboard(eq("k3m9x2a"), eq("UTC")))
                 .thenReturn(
                         new DashboardResponse(
                                 "abc123hash",
@@ -65,5 +66,6 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.buildingName").doesNotExist());
 
         verify(userService).requireTenantMember("user-123", "k3m9x2a");
+        verify(dashboardService).getDashboard("k3m9x2a", "UTC");
     }
 }

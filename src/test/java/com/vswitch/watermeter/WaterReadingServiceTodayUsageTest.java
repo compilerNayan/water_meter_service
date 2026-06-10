@@ -48,21 +48,6 @@ class WaterReadingServiceTodayUsageTest {
                 Instant.now().atZone(ZoneOffset.UTC).truncatedTo(ChronoUnit.HOURS).toInstant();
         when(telemetryIngestionService.findDailyUsage(eq("k3m9x2a"), any()))
                 .thenReturn(Optional.empty());
-        when(telemetryIngestionService.findDeviceState("WM000001"))
-                .thenReturn(
-                        Optional.of(
-                                new DeviceStateRecord(
-                                        "WM000001",
-                                        "k3m9x2a",
-                                        0,
-                                        0,
-                                        DeviceStateRecord.STATUS_IDLE,
-                                        100,
-                                        100,
-                                        100,
-                                        minute.toString(),
-                                        "NORMAL",
-                                        minute.toString())));
 
         MinuteUsageRecord minuteRecord =
                 new MinuteUsageRecord(
