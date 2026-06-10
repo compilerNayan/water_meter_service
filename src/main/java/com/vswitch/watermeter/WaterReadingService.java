@@ -3,6 +3,7 @@ package com.vswitch.watermeter;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -137,12 +138,48 @@ public class WaterReadingService {
     }
 
     double getTodayUsedLiters(String deviceId, String tenantId) {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        return getTodayUsedLiters(deviceId, tenantId, "UTC");
+    }
+
+    /**
+     * Today's usage from live minute buckets for the requested timezone, with daily rollup as
+     * fallback. Matches {@link #getUsage} totals for the local calendar day (device dashboard).
+     */
+    double getTodayUsedLiters(String deviceId, String tenantId, String timezone) {
+        ZoneId zone = safeZone(timezone);
+        LocalDate today = LocalDate.now(zone);
+        Instant start = today.atStartOfDay(zone).toInstant();
+        Instant end = Instant.now();
+        double fromMinutes = 0;
+        if (!end.isBefore(start)) {
+            fromMinutes =
+                    sumUsageTotal(deviceId, start, end, UsageGranularity.H1, timezone);
+        }
+
         String usageKey = DailyUsageRecord.usageKeyFor(today.format(DATE_FORMAT), deviceId);
-        return telemetryIngestionService
-                .findDailyUsage(tenantId, usageKey)
-                .map(DailyUsageRecord::totalLiters)
-                .orElse(0.0);
+        double fromDaily =
+                telemetryIngestionService
+                        .findDailyUsage(tenantId, usageKey)
+                        .map(DailyUsageRecord::totalLiters)
+                        .orElse(0.0);
+
+        return Math.max(fromMinutes, fromDaily);
+    }
+
+    double sumMonthLiters(String deviceId, String tenantId, String timezone) {
+        ZoneId zone = safeZone(timezone);
+        LocalDate today = LocalDate.now(zone);
+        YearMonth month = YearMonth.from(today);
+        double total = 0;
+        for (LocalDate date = month.atDay(1); date.isBefore(today); date = date.plusDays(1)) {
+            String key = DailyUsageRecord.usageKeyFor(date.format(DATE_FORMAT), deviceId);
+            total +=
+                    telemetryIngestionService
+                            .findDailyUsage(tenantId, key)
+                            .map(DailyUsageRecord::totalLiters)
+                            .orElse(0.0);
+        }
+        return total + getTodayUsedLiters(deviceId, tenantId, timezone);
     }
 
     ValveStateResponse getValveState(String deviceId, String tenantId) {

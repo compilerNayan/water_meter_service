@@ -47,7 +47,8 @@ public class QuotaService {
     private QuotaResponse buildResponse(
             String deviceId, String tenantId, DeviceQuotaConfig config) {
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        double usedLiters = waterReadingService.getTodayUsedLiters(deviceId, tenantId);
+        double usedLiters =
+                waterReadingService.getTodayUsedLiters(deviceId, tenantId, config.timezone());
         QuotaCalculator.QuotaCapResult cap =
                 QuotaCalculator.computeCap(
                         config.steps(), usedLiters, config.dailyLimitLiters());

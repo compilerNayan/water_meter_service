@@ -2,10 +2,6 @@ package com.vswitch.watermeter;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDate;
-import java.time.YearMonth;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -21,7 +17,6 @@ import com.vswitch.watermeter.device.DeviceQuotaConfig;
 public class DashboardService {
 
     private static final Duration OFFLINE_THRESHOLD = Duration.ofMinutes(15);
-    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     private final UnitService unitService;
     private final TelemetryIngestionService telemetryIngestionService;
@@ -43,25 +38,29 @@ public class DashboardService {
     }
 
     DashboardResponse getDashboard(String tenantId) {
+        return getDashboard(tenantId, "UTC");
+    }
+
+    DashboardResponse getDashboard(String tenantId, String timezone) {
+        String resolvedTimezone =
+                timezone == null || timezone.isBlank() ? "UTC" : timezone.trim();
         List<UnitRecord> units = unitService.listUnitRecords(tenantId);
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        YearMonth month = YearMonth.from(today);
         String generatedAt = Instant.now().toString();
         String metadataHash = tenantMetadataService.getHash(tenantId).metadataHash();
 
         List<DashboardTelemetryEntry> devices = new ArrayList<>();
         for (UnitRecord unit : units) {
-            devices.add(buildTelemetryEntry(unit, tenantId, today, month));
+            devices.add(buildTelemetryEntry(unit, tenantId, resolvedTimezone));
         }
 
         return new DashboardResponse(metadataHash, generatedAt, devices);
     }
 
     private DashboardTelemetryEntry buildTelemetryEntry(
-            UnitRecord unit, String tenantId, LocalDate today, YearMonth month) {
+            UnitRecord unit, String tenantId, String timezone) {
         String deviceId = unit.deviceId();
-        double todayLiters = waterReadingService.getTodayUsedLiters(deviceId, tenantId);
-        double monthLiters = sumMonthLiters(tenantId, deviceId, today, month);
+        double todayLiters = waterReadingService.getTodayUsedLiters(deviceId, tenantId, timezone);
+        double monthLiters = waterReadingService.sumMonthLiters(deviceId, tenantId, timezone);
 
         Optional<DeviceStateRecord> stateOpt =
                 telemetryIngestionService.findDeviceState(deviceId);
@@ -97,20 +96,6 @@ public class DashboardService {
                 valve.effectivePressurePercent(),
                 valve.isOff(),
                 hasAlert);
-    }
-
-    private double sumMonthLiters(
-            String tenantId, String deviceId, LocalDate today, YearMonth month) {
-        double total = 0;
-        for (LocalDate date = month.atDay(1); !date.isAfter(today); date = date.plusDays(1)) {
-            String key = DailyUsageRecord.usageKeyFor(date.format(DATE_FORMAT), deviceId);
-            total +=
-                    telemetryIngestionService
-                            .findDailyUsage(tenantId, key)
-                            .map(DailyUsageRecord::totalLiters)
-                            .orElse(0.0);
-        }
-        return total;
     }
 
     private DeviceQuotaConfig loadQuotaConfig(String deviceId, String tenantId) {

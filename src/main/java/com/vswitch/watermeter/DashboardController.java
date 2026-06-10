@@ -4,6 +4,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -19,8 +20,10 @@ public class DashboardController {
 
     @GetMapping("/v2/tenants/{tenantId}/dashboard")
     DashboardResponse getDashboard(
-            @AuthenticationPrincipal Jwt jwt, @PathVariable String tenantId) {
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable String tenantId,
+            @RequestParam(defaultValue = "UTC") String timezone) {
         userService.requireTenantMember(jwt.getSubject(), tenantId);
-        return dashboardService.getDashboard(tenantId);
+        return dashboardService.getDashboard(tenantId, timezone);
     }
 }
