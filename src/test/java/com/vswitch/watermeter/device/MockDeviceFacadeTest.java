@@ -24,8 +24,6 @@ import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
-import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
-import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -136,8 +134,6 @@ class MockDeviceFacadeTest {
                         GetItemResponse.builder().build(),
                         GetItemResponse.builder().item(state.toItem()).build(),
                         GetItemResponse.builder().build());
-        when(dynamoDbClient.query(any(QueryRequest.class)))
-                .thenReturn(QueryResponse.builder().items(List.of()).build());
 
         Instant periodStart = LocalDate.of(2026, 6, 9).atTime(10, 0).toInstant(ZoneOffset.UTC);
         facade.ingest30MinuteBucket(
