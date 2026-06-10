@@ -14,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import com.vswitch.watermeter.device.DeviceFacade;
 
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
+import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -43,7 +44,8 @@ class WaterReadingServiceTodayUsageTest {
 
     @Test
     void getTodayUsedLitersSumsMinuteBucketsForLocalDay() {
-        Instant minute = Instant.now().atZone(ZoneOffset.UTC).truncatedTo(ChronoUnit.HOURS);
+        Instant minute =
+                Instant.now().atZone(ZoneOffset.UTC).truncatedTo(ChronoUnit.HOURS).toInstant();
         when(telemetryIngestionService.findDailyUsage(eq("k3m9x2a"), any()))
                 .thenReturn(Optional.empty());
         when(telemetryIngestionService.findDeviceState("WM000001"))
@@ -72,7 +74,7 @@ class WaterReadingServiceTodayUsageTest {
                         100,
                         0);
 
-        when(dynamoDbClient.query(any()))
+        when(dynamoDbClient.query(any(QueryRequest.class)))
                 .thenReturn(QueryResponse.builder().items(minuteRecord.toItem()).build());
 
         double liters = service.getTodayUsedLiters("WM000001", "k3m9x2a", "UTC");
