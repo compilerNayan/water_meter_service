@@ -108,7 +108,7 @@ public class MockTelemetrySchedulerService {
                     unit.tenantId(), unit.deviceId(), minute, volumeLiters * 1000 / 60);
         }
 
-        deviceFacade.ingestMinuteBucket(
+        deviceFacade.ingestLiveTick(
                 unit, minute, volumeLiters, avgFlow, valveTarget, status);
 
         if (profileFactory.isValveMismatchMinute(profile, zoned)) {
@@ -116,24 +116,29 @@ public class MockTelemetrySchedulerService {
         }
 
         if (minute.atZone(ZoneOffset.UTC).getMinute() % 30 == 0) {
-            ingest30MinuteBoundary(unit, minute, valveTarget, volumeLiters);
+            ingest30MinuteBoundary(unit, minute, valveTarget, profile);
         }
     }
 
     private void ingest30MinuteBoundary(
-            UnitRecord unit, Instant minute, double valveTarget, double lastMinuteLiters) {
+            UnitRecord unit, Instant minute, double valveTarget, MockDeviceProfile profile) {
         Instant periodStart = minute.minus(29, ChronoUnit.MINUTES);
         List<MinuteBucketEntry> minutes = new ArrayList<>();
+        double slotLiters = 0;
+
         for (int i = 0; i < 30; i++) {
             Instant t = periodStart.plus(i, ChronoUnit.MINUTES);
-            double ml = (i == 29) ? lastMinuteLiters * 1000 : lastMinuteLiters * 1000 * 0.9;
-            minutes.add(new MinuteBucketEntry(t, ml));
+            ZonedDateTime zoned = t.atZone(ZoneOffset.UTC);
+            double liters = profileFactory.minuteVolumeLiters(profile, zoned);
+            if (profileFactory.isLeakBurstMinute(profile, zoned)) {
+                liters = 15 + (profile.seed() % 10);
+            }
+            slotLiters += liters;
+            minutes.add(new MinuteBucketEntry(t, liters * 1000));
         }
 
         double cumulative =
-                deviceFacade
-                        .getCurrentReading(unit.deviceId())
-                        .cumulativeLiters();
+                deviceFacade.getCurrentReading(unit.deviceId()).cumulativeLiters() + slotLiters;
 
         deviceFacade.ingest30MinuteBucket(
                 new ThirtyMinuteBucketPayload(

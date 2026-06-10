@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -24,10 +25,15 @@ public class BuildingStatsService {
 
     private final UnitService unitService;
     private final TelemetryIngestionService telemetryIngestionService;
+    private final VolumeReadingService volumeReadingService;
 
-    BuildingStatsService(UnitService unitService, TelemetryIngestionService telemetryIngestionService) {
+    BuildingStatsService(
+            UnitService unitService,
+            TelemetryIngestionService telemetryIngestionService,
+            VolumeReadingService volumeReadingService) {
         this.unitService = unitService;
         this.telemetryIngestionService = telemetryIngestionService;
+        this.volumeReadingService = volumeReadingService;
     }
 
     BuildingSummaryResponse getSummary(String tenantId) {
@@ -42,22 +48,14 @@ public class BuildingStatsService {
         int alerts = 0;
 
         for (UnitRecord unit : unitRecords) {
-            String todayKey =
-                    DailyUsageRecord.usageKeyFor(today.format(DATE_FORMAT), unit.deviceId());
-            todayTotal +=
-                    telemetryIngestionService
-                            .findDailyUsage(tenantId, todayKey)
-                            .map(DailyUsageRecord::totalLiters)
-                            .orElse(0.0);
+            todayTotal += volumeReadingService.getTodayUsedLiters(unit.deviceId(), "UTC");
 
             for (LocalDate date = month.atDay(1); !date.isAfter(today); date = date.plusDays(1)) {
-                String key =
-                        DailyUsageRecord.usageKeyFor(date.format(DATE_FORMAT), unit.deviceId());
-                monthTotal +=
-                        telemetryIngestionService
-                                .findDailyUsage(tenantId, key)
-                                .map(DailyUsageRecord::totalLiters)
-                                .orElse(0.0);
+                if (date.equals(today)) {
+                    monthTotal += volumeReadingService.getTodayUsedLiters(unit.deviceId(), "UTC");
+                } else {
+                    monthTotal += volumeReadingService.litersForCompletedDay(unit.deviceId(), date);
+                }
             }
 
             Optional<DeviceStateRecord> state =
@@ -83,6 +81,39 @@ public class BuildingStatsService {
                 alerts);
     }
 
+    BuildingDailyResponse getBuildingDaily(String tenantId, int days, String timezone) {
+        ZoneId zone = safeZone(timezone);
+        LocalDate today = LocalDate.now(zone);
+        LocalDate from = today.minusDays(Math.max(1, days) - 1L);
+        List<UnitRecord> units = unitService.listUnitRecords(tenantId);
+
+        Map<String, Double> totalsByDate = new HashMap<>();
+        for (LocalDate date = from; !date.isAfter(today); date = date.plusDays(1)) {
+            totalsByDate.put(date.format(DATE_FORMAT), 0.0);
+        }
+
+        for (UnitRecord unit : units) {
+            for (LocalDate date = from; !date.isAfter(today); date = date.plusDays(1)) {
+                String key = date.format(DATE_FORMAT);
+                double liters;
+                if (date.equals(today)) {
+                    liters = volumeReadingService.getTodayUsedLiters(unit.deviceId(), timezone);
+                } else {
+                    liters = volumeReadingService.litersForCompletedDay(unit.deviceId(), date);
+                }
+                totalsByDate.merge(key, liters, Double::sum);
+            }
+        }
+
+        List<BuildingDailyEntry> entries = new ArrayList<>();
+        for (LocalDate date = from; !date.isAfter(today); date = date.plusDays(1)) {
+            String key = date.format(DATE_FORMAT);
+            entries.add(new BuildingDailyEntry(key, totalsByDate.getOrDefault(key, 0.0)));
+        }
+
+        return new BuildingDailyResponse(timezone, entries);
+    }
+
     BuildingRankingsResponse getRankings(
             String tenantId, String period, String groupBy, String blockId, int limit) {
         final int topN = Math.max(1, limit);
@@ -99,13 +130,11 @@ public class BuildingStatsService {
         for (UnitRecord unit : units) {
             double liters = 0;
             for (LocalDate date = from; !date.isAfter(today); date = date.plusDays(1)) {
-                String key =
-                        DailyUsageRecord.usageKeyFor(date.format(DATE_FORMAT), unit.deviceId());
-                liters +=
-                        telemetryIngestionService
-                                .findDailyUsage(tenantId, key)
-                                .map(DailyUsageRecord::totalLiters)
-                                .orElse(0.0);
+                if (date.equals(today)) {
+                    liters += volumeReadingService.getTodayUsedLiters(unit.deviceId(), "UTC");
+                } else {
+                    liters += volumeReadingService.litersForCompletedDay(unit.deviceId(), date);
+                }
             }
             aggregated.put(unit.unitId(), new AggregatedUnit(unit, liters));
         }
@@ -173,6 +202,14 @@ public class BuildingStatsService {
         return Duration.between(Instant.parse(state.lastSeenAt()), Instant.now())
                         .compareTo(OFFLINE_THRESHOLD)
                 > 0;
+    }
+
+    private static ZoneId safeZone(String timezone) {
+        try {
+            return ZoneId.of(timezone);
+        } catch (Exception ignored) {
+            return ZoneOffset.UTC;
+        }
     }
 
     private static String nullToDefault(String value, String defaultValue) {

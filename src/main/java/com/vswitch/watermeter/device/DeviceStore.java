@@ -2,27 +2,25 @@ package com.vswitch.watermeter.device;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
-import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Repository;
 
-import com.vswitch.watermeter.DailyUsageRecord;
+import com.vswitch.watermeter.DayHistoryRecord;
 import com.vswitch.watermeter.DeviceStateRecord;
-import com.vswitch.watermeter.MinuteUsageRecord;
 import com.vswitch.watermeter.MockDeviceProfile;
-import com.vswitch.watermeter.UnitRecord;
 
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
+import software.amazon.awssdk.services.dynamodb.model.DeleteItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
-import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 
 @Repository
 public class DeviceStore {
@@ -31,20 +29,20 @@ public class DeviceStore {
 
     private final DynamoDbClient dynamoDbClient;
     private final String deviceStateTable;
-    private final String minuteUsageTable;
-    private final String dailyUsageTable;
+    private final String todaySlotsTable;
+    private final String dayHistoryTable;
     private final String deviceConfigTable;
 
     public DeviceStore(
             DynamoDbClient dynamoDbClient,
             @Value("${device.state.table.name:WaterMeterDeviceState}") String deviceStateTable,
-            @Value("${minute.usage.table.name:WaterMeterMinuteUsage}") String minuteUsageTable,
-            @Value("${daily.usage.table.name:WaterMeterDailyUsage}") String dailyUsageTable,
+            @Value("${today.slots.table.name:WaterMeterTodaySlots}") String todaySlotsTable,
+            @Value("${day.history.table.name:WaterMeterDayHistory}") String dayHistoryTable,
             @Value("${device.config.table.name:WaterMeterDeviceConfig}") String deviceConfigTable) {
         this.dynamoDbClient = dynamoDbClient;
         this.deviceStateTable = deviceStateTable;
-        this.minuteUsageTable = minuteUsageTable;
-        this.dailyUsageTable = dailyUsageTable;
+        this.todaySlotsTable = todaySlotsTable;
+        this.dayHistoryTable = dayHistoryTable;
         this.deviceConfigTable = deviceConfigTable;
     }
 
@@ -96,138 +94,122 @@ public class DeviceStore {
                         .build());
     }
 
-    public Optional<DailyUsageRecord> findDailyUsage(String tenantId, String usageKey) {
-        var response =
-                dynamoDbClient.getItem(
-                        GetItemRequest.builder()
-                                .tableName(dailyUsageTable)
-                                .key(
-                                        Map.of(
-                                                "tenantId",
-                                                AttributeValue.builder().s(tenantId).build(),
-                                                "usageKey",
-                                                AttributeValue.builder().s(usageKey).build()))
-                                .build());
-        if (response.item() == null || response.item().isEmpty()) {
-            return Optional.empty();
-        }
-        return Optional.of(DailyUsageRecord.fromItem(response.item()));
-    }
-
-    void putMinuteUsage(MinuteUsageRecord record) {
+    void putTodaySlot(TodaySlotRecord record) {
         dynamoDbClient.putItem(
                 PutItemRequest.builder()
-                        .tableName(minuteUsageTable)
+                        .tableName(todaySlotsTable)
                         .item(record.toItem())
                         .build());
     }
 
-    void updateDailyRollup(UnitRecord unit, Instant minute, double volumeLiters) {
-        String date = minute.atZone(ZoneOffset.UTC).format(DATE_FORMAT);
-        String usageKey = DailyUsageRecord.usageKeyFor(date, unit.deviceId());
-        int hour = minute.atZone(ZoneOffset.UTC).getHour();
-        String now = Instant.now().toString();
+    List<TodaySlotRecord> queryTodaySlotsByLocalDate(String deviceId, String localDate) {
+        List<TodaySlotRecord> records = new ArrayList<>();
+        Map<String, AttributeValue> exclusiveStartKey = null;
 
-        Map<String, AttributeValue> key =
-                Map.of(
-                        "tenantId", AttributeValue.builder().s(unit.tenantId()).build(),
-                        "usageKey", AttributeValue.builder().s(usageKey).build());
-
-        Map<String, AttributeValue> values = new HashMap<>();
-        values.put(":vol", AttributeValue.builder().n(Double.toString(volumeLiters)).build());
-        values.put(":uid", AttributeValue.builder().s(unit.unitId()).build());
-        values.put(":name", AttributeValue.builder().s(unit.name()).build());
-        values.put(":block", AttributeValue.builder().s(unit.block()).build());
-        values.put(":wing", AttributeValue.builder().s(unit.wing()).build());
-        values.put(":hour", AttributeValue.builder().n(Integer.toString(hour)).build());
-        values.put(":hourVol", AttributeValue.builder().n(Double.toString(volumeLiters)).build());
-        values.put(":zero", AttributeValue.builder().n("0").build());
-        values.put(":updatedAt", AttributeValue.builder().s(now).build());
-
-        dynamoDbClient.updateItem(
-                UpdateItemRequest.builder()
-                        .tableName(dailyUsageTable)
-                        .key(key)
-                        .updateExpression(
-                                "ADD totalLiters :vol "
-                                        + "SET unitId = :uid, #name = :name, #block = :block, "
-                                        + "#wing = :wing, updatedAt = :updatedAt, "
-                                        + "peakHour = if_not_exists(peakHour, :hour), "
-                                        + "peakHourLiters = if_not_exists(peakHourLiters, :zero)")
-                        .expressionAttributeNames(
-                                Map.of("#name", "name", "#block", "block", "#wing", "wing"))
-                        .expressionAttributeValues(values)
-                        .build());
-
-        Optional<DailyUsageRecord> daily = findDailyUsage(unit.tenantId(), usageKey);
-        if (daily.isPresent() && volumeLiters > daily.get().peakHourLiters()) {
-            dynamoDbClient.updateItem(
-                    UpdateItemRequest.builder()
-                            .tableName(dailyUsageTable)
-                            .key(key)
-                            .updateExpression("SET peakHour = :hour, peakHourLiters = :hourVol")
+        do {
+            QueryRequest.Builder builder =
+                    QueryRequest.builder()
+                            .tableName(todaySlotsTable)
+                            .keyConditionExpression("deviceId = :deviceId")
+                            .filterExpression("localDate = :localDate")
                             .expressionAttributeValues(
                                     Map.of(
-                                            ":hour",
-                                                    AttributeValue.builder()
-                                                            .n(Integer.toString(hour))
-                                                            .build(),
-                                            ":hourVol",
-                                                    AttributeValue.builder()
-                                                            .n(Double.toString(volumeLiters))
-                                                            .build()))
+                                            ":deviceId",
+                                            AttributeValue.builder().s(deviceId).build(),
+                                            ":localDate",
+                                            AttributeValue.builder().s(localDate).build()));
+
+            if (exclusiveStartKey != null && !exclusiveStartKey.isEmpty()) {
+                builder.exclusiveStartKey(exclusiveStartKey);
+            }
+
+            var response = dynamoDbClient.query(builder.build());
+            for (var item : response.items()) {
+                records.add(TodaySlotRecord.fromItem(item));
+            }
+            exclusiveStartKey = response.lastEvaluatedKey();
+        } while (exclusiveStartKey != null && !exclusiveStartKey.isEmpty());
+
+        return records;
+    }
+
+    void deleteTodaySlotsForLocalDate(String deviceId, String localDate) {
+        for (TodaySlotRecord slot : queryTodaySlotsByLocalDate(deviceId, localDate)) {
+            dynamoDbClient.deleteItem(
+                    DeleteItemRequest.builder()
+                            .tableName(todaySlotsTable)
+                            .key(
+                                    Map.of(
+                                            "deviceId",
+                                            AttributeValue.builder().s(deviceId).build(),
+                                            "slotKey",
+                                            AttributeValue.builder().s(slot.slotKey()).build()))
                             .build());
         }
     }
 
-    void writeHistoricalHour(
-            UnitRecord unit,
-            Instant hourStart,
-            double volumeLiters,
-            double avgFlowRateLpm,
-            double valveTargetPercent,
-            long expiresAtEpochSeconds) {
-        String minuteKey = MinuteUsageRecord.minuteKeyFor(hourStart.truncatedTo(ChronoUnit.HOURS));
-
-        MinuteUsageRecord minuteRecord =
-                new MinuteUsageRecord(
-                        unit.deviceId(),
-                        minuteKey,
-                        unit.tenantId(),
-                        volumeLiters,
-                        avgFlowRateLpm,
-                        valveTargetPercent,
-                        expiresAtEpochSeconds);
-
-        putMinuteUsage(minuteRecord);
-    }
-
-    void writeHistoricalDaily(
-            UnitRecord unit,
-            LocalDate date,
-            double totalLiters,
-            int peakHour,
-            double peakHourLiters) {
-        String usageKey = DailyUsageRecord.usageKeyFor(date.format(DATE_FORMAT), unit.deviceId());
-        String now = Instant.now().toString();
-        DailyUsageRecord record =
-                new DailyUsageRecord(
-                        unit.tenantId(),
-                        usageKey,
-                        unit.unitId(),
-                        unit.name(),
-                        unit.block(),
-                        unit.wing(),
-                        totalLiters,
-                        peakHour,
-                        peakHourLiters,
-                        now);
-
+    void putDayHistory(DayHistoryRecord record) {
         dynamoDbClient.putItem(
                 PutItemRequest.builder()
-                        .tableName(dailyUsageTable)
+                        .tableName(dayHistoryTable)
                         .item(record.toItem())
                         .build());
+    }
+
+    Optional<DayHistoryRecord> findDayHistory(String deviceId, LocalDate date) {
+        var response =
+                dynamoDbClient.getItem(
+                        GetItemRequest.builder()
+                                .tableName(dayHistoryTable)
+                                .key(
+                                        Map.of(
+                                                "deviceId",
+                                                AttributeValue.builder().s(deviceId).build(),
+                                                "dayKey",
+                                                AttributeValue.builder()
+                                                        .s(DayHistoryRecord.dayKeyFor(date))
+                                                        .build()))
+                                .build());
+        if (response.item() == null || response.item().isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(DayHistoryRecord.fromItem(response.item()));
+    }
+
+    List<DayHistoryRecord> queryDayHistory(String deviceId, LocalDate from, LocalDate to) {
+        String fromKey = DayHistoryRecord.dayKeyFor(from);
+        String toKey = DayHistoryRecord.dayKeyFor(to);
+
+        List<DayHistoryRecord> records = new ArrayList<>();
+        Map<String, AttributeValue> exclusiveStartKey = null;
+
+        do {
+            QueryRequest.Builder builder =
+                    QueryRequest.builder()
+                            .tableName(dayHistoryTable)
+                            .keyConditionExpression(
+                                    "deviceId = :deviceId AND dayKey BETWEEN :fromKey AND :toKey")
+                            .expressionAttributeValues(
+                                    Map.of(
+                                            ":deviceId",
+                                            AttributeValue.builder().s(deviceId).build(),
+                                            ":fromKey",
+                                            AttributeValue.builder().s(fromKey).build(),
+                                            ":toKey",
+                                            AttributeValue.builder().s(toKey).build()));
+
+            if (exclusiveStartKey != null && !exclusiveStartKey.isEmpty()) {
+                builder.exclusiveStartKey(exclusiveStartKey);
+            }
+
+            var response = dynamoDbClient.query(builder.build());
+            for (var item : response.items()) {
+                records.add(DayHistoryRecord.fromItem(item));
+            }
+            exclusiveStartKey = response.lastEvaluatedKey();
+        } while (exclusiveStartKey != null && !exclusiveStartKey.isEmpty());
+
+        return records;
     }
 
     void applyHistoricalCumulative(String deviceId, double additionalLiters, Instant lastHour) {
@@ -269,5 +251,9 @@ public class DeviceStore {
             return MockDeviceProfile.AnomalyType.OFFLINE.name();
         }
         return MockDeviceProfile.AnomalyType.NORMAL.name();
+    }
+
+    static String formatDate(LocalDate date) {
+        return date.format(DATE_FORMAT);
     }
 }

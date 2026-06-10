@@ -71,7 +71,8 @@ public class WaterController {
                 deviceId,
                 tenantId,
                 LocalDate.parse(from),
-                LocalDate.parse(to));
+                LocalDate.parse(to),
+                timezone);
     }
 
     @GetMapping("/tenants/{tenantId}/devices/{deviceId}/water/hourly-pattern")

@@ -1,6 +1,8 @@
 package com.vswitch.watermeter.device;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 
@@ -15,13 +17,15 @@ import com.vswitch.watermeter.DeviceStateRecord;
 import com.vswitch.watermeter.QuotaStepDto;
 import com.vswitch.watermeter.QuotaUpdateRequest;
 import com.vswitch.watermeter.UnitRecord;
+import com.vswitch.watermeter.VolumeReadingService;
 
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 import software.amazon.awssdk.services.dynamodb.model.GetItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.GetItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
-import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
+import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
+import software.amazon.awssdk.services.dynamodb.model.QueryResponse;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -46,10 +50,11 @@ class MockDeviceFacadeTest {
                 new DeviceStore(
                         dynamoDbClient,
                         "WaterMeterDeviceState",
-                        "WaterMeterMinuteUsage",
-                        "WaterMeterDailyUsage",
+                        "WaterMeterTodaySlots",
+                        "WaterMeterDayHistory",
                         "WaterMeterDeviceConfig");
-        facade = new MockDeviceFacade(store);
+        VolumeReadingService volumeReadingService = new VolumeReadingService(store);
+        facade = new MockDeviceFacade(store, volumeReadingService, 72);
     }
 
     @Test
@@ -109,7 +114,7 @@ class MockDeviceFacadeTest {
     }
 
     @Test
-    void ingestMinuteBucketWritesMinuteStateAndDailyRollup() {
+    void ingest30MinuteBucketWritesTodaySlot() {
         String now = Instant.parse("2026-06-09T10:00:00Z").toString();
         DeviceStateRecord state =
                 new DeviceStateRecord(
@@ -129,34 +134,19 @@ class MockDeviceFacadeTest {
                 .thenReturn(
                         GetItemResponse.builder().item(state.toItem()).build(),
                         GetItemResponse.builder().build());
+        when(dynamoDbClient.query(any(QueryRequest.class)))
+                .thenReturn(QueryResponse.builder().items(List.of()).build());
 
-        UnitRecord unit =
-                new UnitRecord(
-                        "wm-WM000001",
+        Instant periodStart = LocalDate.of(2026, 6, 9).atTime(10, 0).toInstant(ZoneOffset.UTC);
+        facade.ingest30MinuteBucket(
+                new ThirtyMinuteBucketPayload(
                         "k3m9x2a",
                         "WM000001",
-                        "D205",
-                        "D205",
-                        "2",
-                        "A",
-                        "East",
-                        "",
-                        "",
-                        "",
-                        UnitRecord.STATUS_ENROLLED,
-                        "D205-1234",
-                        now,
-                        now);
-
-        facade.ingestMinuteBucket(
-                unit,
-                Instant.parse("2026-06-09T10:00:00Z"),
-                2.5,
-                2.5,
-                100,
-                DeviceStateRecord.STATUS_FLOWING);
+                        periodStart,
+                        List.of(new MinuteBucketEntry(periodStart, 1500)),
+                        1001.5,
+                        100));
 
         verify(dynamoDbClient, atLeastOnce()).putItem(any(PutItemRequest.class));
-        verify(dynamoDbClient).updateItem(any(UpdateItemRequest.class));
     }
 }

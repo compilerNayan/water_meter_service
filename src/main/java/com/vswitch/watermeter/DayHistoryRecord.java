@@ -1,42 +1,49 @@
 package com.vswitch.watermeter;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
-public record MinuteUsageRecord(
+public record DayHistoryRecord(
         String deviceId,
-        String minuteKey,
+        String dayKey,
         String tenantId,
-        double volumeLiters,
-        double avgFlowRateLpm,
-        double valveTargetPercent,
+        String vCsv,
+        double totalLiters,
+        String timezone,
         long expiresAt) {
 
-    public static String minuteKeyFor(java.time.Instant instant) {
-        return "minute#" + instant.toString();
+    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+
+    public static String dayKeyFor(LocalDate date) {
+        return "day#" + date.format(DATE_FORMAT);
     }
 
-    static MinuteUsageRecord fromItem(Map<String, AttributeValue> item) {
-        return new MinuteUsageRecord(
+    public static LocalDate parseDate(String dayKey) {
+        return LocalDate.parse(dayKey.substring("day#".length()), DATE_FORMAT);
+    }
+
+    static DayHistoryRecord fromItem(Map<String, AttributeValue> item) {
+        return new DayHistoryRecord(
                 stringValue(item, "deviceId"),
-                stringValue(item, "minuteKey"),
+                stringValue(item, "dayKey"),
                 stringValue(item, "tenantId"),
-                numberValue(item, "volumeLiters"),
-                numberValue(item, "avgFlowRateLpm"),
-                numberValue(item, "valveTargetPercent", 100),
+                stringValue(item, "v"),
+                numberValue(item, "totalLiters"),
+                stringValue(item, "timezone"),
                 longValue(item, "expiresAt"));
     }
 
-    public Map<String, AttributeValue> toItem() {
+    Map<String, AttributeValue> toItem() {
         return Map.of(
                 "deviceId", AttributeValue.builder().s(deviceId).build(),
-                "minuteKey", AttributeValue.builder().s(minuteKey).build(),
+                "dayKey", AttributeValue.builder().s(dayKey).build(),
                 "tenantId", AttributeValue.builder().s(tenantId).build(),
-                "volumeLiters", AttributeValue.builder().n(Double.toString(volumeLiters)).build(),
-                "avgFlowRateLpm", AttributeValue.builder().n(Double.toString(avgFlowRateLpm)).build(),
-                "valveTargetPercent",
-                        AttributeValue.builder().n(Double.toString(valveTargetPercent)).build(),
+                "v", AttributeValue.builder().s(vCsv).build(),
+                "totalLiters", AttributeValue.builder().n(Double.toString(totalLiters)).build(),
+                "timezone", AttributeValue.builder().s(timezone).build(),
                 "expiresAt", AttributeValue.builder().n(Long.toString(expiresAt)).build());
     }
 
@@ -46,13 +53,9 @@ public record MinuteUsageRecord(
     }
 
     private static double numberValue(Map<String, AttributeValue> item, String key) {
-        return numberValue(item, key, 0);
-    }
-
-    private static double numberValue(Map<String, AttributeValue> item, String key, double defaultValue) {
         AttributeValue value = item.get(key);
         if (value == null || value.n() == null || value.n().isBlank()) {
-            return defaultValue;
+            return 0;
         }
         return Double.parseDouble(value.n());
     }

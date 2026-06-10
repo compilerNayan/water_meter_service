@@ -3,7 +3,6 @@ package com.vswitch.watermeter;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 
 import org.slf4j.Logger;
@@ -14,13 +13,12 @@ import org.springframework.stereotype.Service;
 import com.vswitch.watermeter.device.DeviceFacade;
 
 /**
- * Seeds DynamoDB with realistic usage history when a device completes mock enrollment.
+ * Seeds DynamoDB with realistic day-history when a device completes mock enrollment.
  */
 @Service
 public class MockHistoricalBackfillService {
 
     private static final Logger log = LoggerFactory.getLogger(MockHistoricalBackfillService.class);
-    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     private final DeviceFacade deviceFacade;
     private final MockDeviceProfileFactory profileFactory;
@@ -30,12 +28,12 @@ public class MockHistoricalBackfillService {
     MockHistoricalBackfillService(
             DeviceFacade deviceFacade,
             MockDeviceProfileFactory profileFactory,
-            @Value("${mock.history.backfill.days:10}") int backfillDays,
-            @Value("${mock.history.ttl.days:15}") int historyTtlDays) {
+            @Value("${mock.history.backfill.days:30}") int backfillDays,
+            @Value("${day.history.ttl.days:400}") int historyTtlDays) {
         this.deviceFacade = deviceFacade;
         this.profileFactory = profileFactory;
         this.backfillDays = Math.max(1, backfillDays);
-        this.historyTtlSeconds = Math.max(2L, historyTtlDays) * 24 * 3600;
+        this.historyTtlSeconds = Math.max(30L, historyTtlDays) * 24 * 3600;
     }
 
     void backfillIfNeeded(UnitRecord unit) {
@@ -44,9 +42,7 @@ public class MockHistoricalBackfillService {
         }
 
         LocalDate oldestDay = LocalDate.now(ZoneOffset.UTC).minusDays(backfillDays);
-        String oldestKey =
-                DailyUsageRecord.usageKeyFor(oldestDay.format(DATE_FORMAT), unit.deviceId());
-        if (deviceFacade.findDailyUsage(unit.tenantId(), oldestKey).isPresent()) {
+        if (deviceFacade.hasDayHistory(unit.deviceId(), oldestDay)) {
             log.debug("History already backfilled for device {}", unit.deviceId());
             return;
         }
@@ -57,50 +53,32 @@ public class MockHistoricalBackfillService {
                 unit.deviceId());
 
         double totalHistoricalLiters = 0;
-        Instant lastHour = null;
+        Instant lastDay = null;
         long expiresAt = Instant.now().getEpochSecond() + historyTtlSeconds;
 
         for (int dayOffset = backfillDays; dayOffset >= 1; dayOffset--) {
             LocalDate date = LocalDate.now(ZoneOffset.UTC).minusDays(dayOffset);
             double dailyTarget = dailyTargetLiters(unit.deviceId(), date);
-            double[] hourVolumes = hourlyVolumesForDay(unit.deviceId(), date, dailyTarget);
+            int[] milliliters = minuteVolumesForDay(unit.deviceId(), date, dailyTarget);
+            double totalLiters = MinuteVolumeCsv.sumLiters(milliliters);
 
-            int peakHour = 0;
-            double peakHourLiters = 0;
-            for (int hour = 0; hour < 24; hour++) {
-                double volume = hourVolumes[hour];
-                if (volume > peakHourLiters) {
-                    peakHourLiters = volume;
-                    peakHour = hour;
-                }
+            deviceFacade.writeDayHistory(
+                    new DayHistoryRecord(
+                            unit.deviceId(),
+                            DayHistoryRecord.dayKeyFor(date),
+                            unit.tenantId(),
+                            MinuteVolumeCsv.encodeMl(milliliters),
+                            totalLiters,
+                            "UTC",
+                            expiresAt));
 
-                Instant hourStart = date.atTime(hour, 0).toInstant(ZoneOffset.UTC);
-                lastHour = hourStart;
-                double avgFlow = volume / 60.0;
-                String status =
-                        avgFlow > 0.2
-                                ? DeviceStateRecord.STATUS_FLOWING
-                                : DeviceStateRecord.STATUS_IDLE;
-
-                deviceFacade.writeHistoricalHour(
-                        unit,
-                        hourStart,
-                        volume,
-                        avgFlow,
-                        100,
-                        status,
-                        expiresAt);
-            }
-
-            deviceFacade.writeHistoricalDaily(
-                    unit, date, dailyTarget, peakHour, peakHourLiters);
-
-            totalHistoricalLiters += dailyTarget;
+            totalHistoricalLiters += totalLiters;
+            lastDay = date.atStartOfDay(ZoneOffset.UTC).toInstant();
         }
 
-        if (lastHour != null) {
+        if (lastDay != null) {
             deviceFacade.applyHistoricalCumulative(
-                    unit.deviceId(), totalHistoricalLiters, lastHour);
+                    unit.deviceId(), totalHistoricalLiters, lastDay);
         }
     }
 
@@ -109,11 +87,27 @@ public class MockHistoricalBackfillService {
         return 600 + (Math.abs(mixed) % 601);
     }
 
+    private int[] minuteVolumesForDay(String deviceId, LocalDate date, double dailyTarget) {
+        double[] hourVolumes = hourlyVolumesForDay(deviceId, date, dailyTarget);
+        int[] milliliters = new int[MinuteVolumeCsv.MINUTES_PER_DAY];
+
+        for (int hour = 0; hour < 24; hour++) {
+            double hourLiters = hourVolumes[hour];
+            double perMinute = hourLiters / 60.0;
+            int start = hour * 60;
+            for (int m = 0; m < 60; m++) {
+                double noise = 0.85 + pseudoRandom(deviceId, date, hour, m) * 0.3;
+                milliliters[start + m] = (int) Math.round(perMinute * noise * 1000);
+            }
+        }
+        return milliliters;
+    }
+
     private double[] hourlyVolumesForDay(String deviceId, LocalDate date, double dailyTarget) {
         double[] weights = new double[24];
         double weekendFactor = date.getDayOfWeek().getValue() >= 6 ? 1.1 : 1.0;
         for (int hour = 0; hour < 24; hour++) {
-            double noise = 0.9 + pseudoRandom(deviceId, date, hour) * 0.2;
+            double noise = 0.9 + pseudoRandom(deviceId, date, hour, 0) * 0.2;
             weights[hour] = profileFactory.hourlyPatternLiters(hour) * weekendFactor * noise;
         }
 
@@ -125,8 +119,8 @@ public class MockHistoricalBackfillService {
         return volumes;
     }
 
-    private static double pseudoRandom(String deviceId, LocalDate date, int hour) {
-        int mixed = deviceId.hashCode() ^ date.hashCode() ^ (hour * 31);
+    private static double pseudoRandom(String deviceId, LocalDate date, int hour, int minute) {
+        int mixed = deviceId.hashCode() ^ date.hashCode() ^ (hour * 31) ^ minute;
         return (mixed & 0xFFFF) / 65535.0;
     }
 }

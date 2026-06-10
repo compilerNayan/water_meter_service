@@ -30,6 +30,12 @@ class V2WaterControllerTest {
     private WaterReadingService waterReadingService;
 
     @MockBean
+    private QuotaService quotaService;
+
+    @MockBean
+    private BuildingStatsService buildingStatsService;
+
+    @MockBean
     private UnitService unitService;
 
     @MockBean

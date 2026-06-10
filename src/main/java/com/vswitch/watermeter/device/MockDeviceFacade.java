@@ -3,19 +3,21 @@ package com.vswitch.watermeter.device;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.Optional;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.vswitch.watermeter.CurrentReadingResponse;
-import com.vswitch.watermeter.DailyUsageRecord;
+import com.vswitch.watermeter.DayHistoryRecord;
 import com.vswitch.watermeter.DeviceStateRecord;
-import com.vswitch.watermeter.MinuteUsageRecord;
+import com.vswitch.watermeter.MinuteVolumeCsv;
 import com.vswitch.watermeter.QuotaCalculator;
 import com.vswitch.watermeter.QuotaStepDto;
 import com.vswitch.watermeter.QuotaStepsJson;
@@ -23,6 +25,7 @@ import com.vswitch.watermeter.QuotaUpdateRequest;
 import com.vswitch.watermeter.UnitRecord;
 import com.vswitch.watermeter.ValveStateResponse;
 import com.vswitch.watermeter.ValveUpdateRequest;
+import com.vswitch.watermeter.VolumeReadingService;
 
 @Service
 public class MockDeviceFacade implements DeviceFacade {
@@ -31,12 +34,17 @@ public class MockDeviceFacade implements DeviceFacade {
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     private final DeviceStore deviceStore;
+    private final VolumeReadingService volumeReadingService;
+    private final long slotTtlSeconds;
 
-    public MockDeviceFacade(DeviceStore deviceStore) {
+    public MockDeviceFacade(
+            DeviceStore deviceStore,
+            @Lazy VolumeReadingService volumeReadingService,
+            @Value("${today.slots.ttl.hours:72}") int slotTtlHours) {
         this.deviceStore = deviceStore;
+        this.volumeReadingService = volumeReadingService;
+        this.slotTtlSeconds = Math.max(24, slotTtlHours) * 3600L;
     }
-
-    // --- Quota ---
 
     @Override
     public DeviceQuotaConfig getQuotaConfig(String deviceId) {
@@ -83,8 +91,6 @@ public class MockDeviceFacade implements DeviceFacade {
         deviceStore.putDeviceConfig(DeviceConfigRecord.defaults(deviceId, tenantId, now));
     }
 
-    // --- Init ---
-
     @Override
     public void initializeDeviceState(String deviceId, String tenantId) {
         if (deviceStore.findDeviceState(deviceId).isPresent()) {
@@ -108,8 +114,6 @@ public class MockDeviceFacade implements DeviceFacade {
                         now);
         deviceStore.putDeviceState(state);
     }
-
-    // --- Ingest ---
 
     @Override
     public void ingestSecondPulse(String tenantId, String deviceId, Instant ts, double ml) {
@@ -135,28 +139,14 @@ public class MockDeviceFacade implements DeviceFacade {
     }
 
     @Override
-    public void ingestMinuteBucket(
+    public void ingestLiveTick(
             UnitRecord unit,
             Instant minute,
             double volumeLiters,
             double avgFlowRateLpm,
             double valveTargetPercent,
             String status) {
-        String minuteKey = MinuteUsageRecord.minuteKeyFor(minute);
-        long expiresAt = minute.getEpochSecond() + 48 * 3600;
-
-        deviceStore.putMinuteUsage(
-                new MinuteUsageRecord(
-                        unit.deviceId(),
-                        minuteKey,
-                        unit.tenantId(),
-                        volumeLiters,
-                        avgFlowRateLpm,
-                        valveTargetPercent,
-                        expiresAt));
-
         DeviceStateRecord current = requireDeviceState(unit.deviceId(), unit.tenantId());
-        double cumulative = current.cumulativeLiters() + volumeLiters;
         double actualPercent = computeActualPercent(unit.deviceId(), valveTargetPercent);
         String now = Instant.now().toString();
 
@@ -164,7 +154,7 @@ public class MockDeviceFacade implements DeviceFacade {
                 new DeviceStateRecord(
                         unit.deviceId(),
                         unit.tenantId(),
-                        cumulative,
+                        current.cumulativeLiters(),
                         avgFlowRateLpm,
                         status,
                         valveTargetPercent,
@@ -175,11 +165,29 @@ public class MockDeviceFacade implements DeviceFacade {
                         now);
 
         deviceStore.putDeviceState(updated);
-        deviceStore.updateDailyRollup(unit, minute, volumeLiters);
     }
 
     @Override
     public void ingest30MinuteBucket(ThirtyMinuteBucketPayload payload) {
+        ZoneId zone = resolveTimezone(payload.deviceId());
+        String localDate = payload.periodStart().atZone(zone).toLocalDate().format(DATE_FORMAT);
+
+        int[] milliliters = new int[payload.minutes().size()];
+        for (int i = 0; i < payload.minutes().size(); i++) {
+            milliliters[i] = (int) Math.round(payload.minutes().get(i).ml());
+        }
+
+        long expiresAt = payload.periodStart().getEpochSecond() + slotTtlSeconds;
+        deviceStore.putTodaySlot(
+                new TodaySlotRecord(
+                        payload.deviceId(),
+                        TodaySlotRecord.slotKeyFor(payload.periodStart()),
+                        payload.tenantId(),
+                        localDate,
+                        MinuteVolumeCsv.encodeMl(milliliters),
+                        payload.cumulativeLiters(),
+                        expiresAt));
+
         DeviceStateRecord current =
                 requireDeviceState(payload.deviceId(), payload.tenantId());
         double actualPercent = computeActualPercent(payload.deviceId(), payload.valveTargetPercent());
@@ -222,29 +230,14 @@ public class MockDeviceFacade implements DeviceFacade {
         deviceStore.putDeviceState(updated);
     }
 
-    // --- Historical seed ---
-
     @Override
-    public void writeHistoricalHour(
-            UnitRecord unit,
-            Instant hourStart,
-            double volumeLiters,
-            double avgFlowRateLpm,
-            double valveTargetPercent,
-            String status,
-            long expiresAtEpochSeconds) {
-        deviceStore.writeHistoricalHour(
-                unit, hourStart, volumeLiters, avgFlowRateLpm, valveTargetPercent, expiresAtEpochSeconds);
+    public void writeDayHistory(DayHistoryRecord record) {
+        deviceStore.putDayHistory(record);
     }
 
     @Override
-    public void writeHistoricalDaily(
-            UnitRecord unit,
-            LocalDate date,
-            double totalLiters,
-            int peakHour,
-            double peakHourLiters) {
-        deviceStore.writeHistoricalDaily(unit, date, totalLiters, peakHour, peakHourLiters);
+    public boolean hasDayHistory(String deviceId, LocalDate date) {
+        return deviceStore.findDayHistory(deviceId, date).isPresent();
     }
 
     @Override
@@ -252,13 +245,6 @@ public class MockDeviceFacade implements DeviceFacade {
             String deviceId, double additionalLiters, Instant lastHour) {
         deviceStore.applyHistoricalCumulative(deviceId, additionalLiters, lastHour);
     }
-
-    @Override
-    public Optional<DailyUsageRecord> findDailyUsage(String tenantId, String usageKey) {
-        return deviceStore.findDailyUsage(tenantId, usageKey);
-    }
-
-    // --- Live reads ---
 
     @Override
     public CurrentReadingResponse getCurrentReading(String deviceId) {
@@ -287,7 +273,7 @@ public class MockDeviceFacade implements DeviceFacade {
         try {
             DeviceQuotaConfig quota = getQuotaConfig(deviceId);
             if (quota.enabled()) {
-                double used = getTodayUsedLiters(deviceId, tenantId);
+                double used = volumeReadingService.getTodayUsedLiters(deviceId, quota.timezone());
                 QuotaCalculator.QuotaCapResult cap =
                         QuotaCalculator.computeCap(
                                 quota.steps(), used, quota.dailyLimitLiters());
@@ -316,8 +302,6 @@ public class MockDeviceFacade implements DeviceFacade {
                 quotaCapPercent,
                 effective);
     }
-
-    // --- Writes ---
 
     @Override
     public ValveStateResponse setValveTarget(
@@ -359,15 +343,19 @@ public class MockDeviceFacade implements DeviceFacade {
         return getValveState(deviceId, tenantId);
     }
 
-    // --- Helpers ---
-
-    private double getTodayUsedLiters(String deviceId, String tenantId) {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        String usageKey = DailyUsageRecord.usageKeyFor(today.format(DATE_FORMAT), deviceId);
+    private ZoneId resolveTimezone(String deviceId) {
         return deviceStore
-                .findDailyUsage(tenantId, usageKey)
-                .map(DailyUsageRecord::totalLiters)
-                .orElse(0.0);
+                .findDeviceConfig(deviceId)
+                .map(DeviceConfigRecord::timezone)
+                .map(
+                        tz -> {
+                            try {
+                                return ZoneId.of(tz);
+                            } catch (Exception e) {
+                                return ZoneOffset.UTC;
+                            }
+                        })
+                .orElse(ZoneOffset.UTC);
     }
 
     private double resolveLastUserPressure(String deviceId, DeviceStateRecord state) {
