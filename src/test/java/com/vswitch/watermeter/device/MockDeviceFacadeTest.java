@@ -130,8 +130,10 @@ class MockDeviceFacadeTest {
                         "NORMAL",
                         now);
 
+        // ingest30MinuteBucket: findDeviceConfig (timezone), findDeviceState, findDeviceConfig (pressure)
         when(dynamoDbClient.getItem(any(GetItemRequest.class)))
                 .thenReturn(
+                        GetItemResponse.builder().build(),
                         GetItemResponse.builder().item(state.toItem()).build(),
                         GetItemResponse.builder().build());
         when(dynamoDbClient.query(any(QueryRequest.class)))
