@@ -65,7 +65,8 @@ public class DevicePreEnrollService {
                         STATUS_PENDING,
                         now.toString(),
                         expiresAt.toString(),
-                        userId);
+                        userId,
+                        null);
 
         dynamoDbClient.putItem(
                 PutItemRequest.builder()

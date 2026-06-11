@@ -144,6 +144,7 @@ Resources:
           TODAY_SLOTS_TABLE_NAME: WaterMeterTodaySlots
           DAY_HISTORY_TABLE_NAME: WaterMeterDayHistory
           DEVICE_CONFIG_TABLE_NAME: WaterMeterDeviceConfig
+          MOCK_TELEMETRY_ENABLED: "false"
           COGNITO_ISSUER_URI: https://cognito-idp.ap-south-1.amazonaws.com/ap-south-1_vm19Xv95r
       Policies:
         - DynamoDBCrudPolicy:
@@ -192,7 +193,7 @@ Resources:
           TODAY_SLOTS_TABLE_NAME: WaterMeterTodaySlots
           DAY_HISTORY_TABLE_NAME: WaterMeterDayHistory
           DEVICE_CONFIG_TABLE_NAME: WaterMeterDeviceConfig
-          MOCK_TELEMETRY_ENABLED: "true"
+          MOCK_TELEMETRY_ENABLED: "false"
           MOCK_HISTORY_BACKFILL_DAYS: "30"
           DAY_HISTORY_TTL_DAYS: "400"
           TODAY_SLOTS_TTL_HOURS: "72"
@@ -212,7 +213,56 @@ Resources:
           Type: Schedule
           Properties:
             Schedule: rate(1 minute)
-            Enabled: true
+            Enabled: false
+
+  DeviceMqttIngestionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: com.vswitch.watermeter.DeviceMqttLambdaHandler::handleRequest
+      CodeUri: target/water-meter-service-0.0.1-SNAPSHOT-aws.jar
+      Timeout: 30
+      Environment:
+        Variables:
+          USERS_TABLE_NAME: WaterMeterUsers
+          TENANTS_TABLE_NAME: WaterMeterTenants
+          PRE_ENROLL_TABLE_NAME: WaterMeterDevicePreEnrollments
+          UNITS_TABLE_NAME: WaterMeterUnits
+          DEVICE_STATE_TABLE_NAME: WaterMeterDeviceState
+          TODAY_SLOTS_TABLE_NAME: WaterMeterTodaySlots
+          DAY_HISTORY_TABLE_NAME: WaterMeterDayHistory
+          DEVICE_CONFIG_TABLE_NAME: WaterMeterDeviceConfig
+          MOCK_TELEMETRY_ENABLED: "false"
+          TODAY_SLOTS_TTL_HOURS: "72"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: WaterMeterUnits
+        - DynamoDBCrudPolicy:
+            TableName: WaterMeterDevicePreEnrollments
+        - DynamoDBCrudPolicy:
+            TableName: WaterMeterDeviceState
+        - DynamoDBCrudPolicy:
+            TableName: WaterMeterTodaySlots
+        - DynamoDBCrudPolicy:
+            TableName: WaterMeterDeviceConfig
+
+  DeviceMqttTopicRule:
+    Type: AWS::IoT::TopicRule
+    Properties:
+      RuleName: WaterMeterDeviceMqttIngest
+      TopicRulePayload:
+        AwsIotSqlVersion: "2016-03-23"
+        Sql: "SELECT topic() as mqttTopic, * FROM 'vswitch/water/#'"
+        Actions:
+          - Lambda:
+              FunctionArn: !GetAtt DeviceMqttIngestionFunction.Arn
+
+  DeviceMqttLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DeviceMqttIngestionFunction
+      Action: lambda:InvokeFunction
+      Principal: iot.amazonaws.com
+      SourceArn: !Sub "arn:aws:iot:${AWS::Region}:${AWS::AccountId}:rule/WaterMeterDeviceMqttIngest"
 
   DayRollupFunction:
     Type: AWS::Serverless::Function

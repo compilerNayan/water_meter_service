@@ -8,6 +8,7 @@ import java.util.Arrays;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import com.vswitch.watermeter.device.DeviceFacade;
@@ -16,6 +17,7 @@ import com.vswitch.watermeter.device.DeviceFacade;
  * Seeds DynamoDB with realistic day-history when a device completes mock enrollment.
  */
 @Service
+@ConditionalOnProperty(name = "mock.telemetry.enabled", havingValue = "true")
 public class MockHistoricalBackfillService {
 
     private static final Logger log = LoggerFactory.getLogger(MockHistoricalBackfillService.class);

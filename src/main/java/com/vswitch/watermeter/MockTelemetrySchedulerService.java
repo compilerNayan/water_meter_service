@@ -10,6 +10,7 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import com.vswitch.watermeter.device.DeviceFacade;
@@ -17,6 +18,7 @@ import com.vswitch.watermeter.device.MinuteBucketEntry;
 import com.vswitch.watermeter.device.ThirtyMinuteBucketPayload;
 
 @Service
+@ConditionalOnProperty(name = "mock.telemetry.enabled", havingValue = "true")
 public class MockTelemetrySchedulerService {
 
     private static final Logger log = LoggerFactory.getLogger(MockTelemetrySchedulerService.class);

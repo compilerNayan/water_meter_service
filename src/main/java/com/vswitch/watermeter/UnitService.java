@@ -21,24 +21,19 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.QueryRequest;
 import software.amazon.awssdk.services.dynamodb.model.ScanRequest;
 
-import com.vswitch.watermeter.device.DeviceFacade;
-
 @Service
 public class UnitService {
 
     private final DynamoDbClient dynamoDbClient;
-    private final DeviceFacade deviceFacade;
     private final String tableName;
     private final String tenantIdIndexName;
     private final TenantMetadataService tenantMetadataService;
 
     UnitService(
             DynamoDbClient dynamoDbClient,
-            DeviceFacade deviceFacade,
             @Value("${units.table.name:WaterMeterUnits}") String tableName,
             @Autowired @Lazy TenantMetadataService tenantMetadataService) {
         this.dynamoDbClient = dynamoDbClient;
-        this.deviceFacade = deviceFacade;
         this.tableName = tableName;
         this.tenantIdIndexName = "tenantId-index";
         this.tenantMetadataService = tenantMetadataService;
@@ -70,7 +65,7 @@ public class UnitService {
                         nullToEmpty(request.residentName()),
                         nullToEmpty(request.phoneNumber()),
                         nullToEmpty(request.notes()),
-                        UnitRecord.STATUS_ENROLLED,
+                        UnitRecord.STATUS_PENDING,
                         inviteCode,
                         now,
                         now);
@@ -78,11 +73,39 @@ public class UnitService {
         dynamoDbClient.putItem(
                 PutItemRequest.builder().tableName(tableName).item(unit.toItem()).build());
 
-        deviceFacade.initializeDeviceState(deviceId, tenantId);
-        deviceFacade.initializeDeviceConfig(deviceId, tenantId);
-
         tenantMetadataService.recomputeAndPersist(tenantId);
         return unit.toResponse();
+    }
+
+    void markEnrollmentComplete(String tenantId, String deviceId, String enrolledAt) {
+        UnitRecord unit =
+                findByTenantAndDeviceId(tenantId, deviceId.trim())
+                        .orElseThrow(
+                                () ->
+                                        new ResponseStatusException(
+                                                HttpStatus.NOT_FOUND, "Unit not found"));
+
+        String now = Instant.now().toString();
+        UnitRecord updated =
+                new UnitRecord(
+                        unit.unitId(),
+                        unit.tenantId(),
+                        unit.deviceId(),
+                        unit.name(),
+                        unit.flatNumber(),
+                        unit.floor(),
+                        unit.block(),
+                        unit.wing(),
+                        unit.residentName(),
+                        unit.phoneNumber(),
+                        unit.notes(),
+                        UnitRecord.STATUS_ENROLLED,
+                        unit.unitInviteCode(),
+                        unit.createdAt(),
+                        now);
+
+        dynamoDbClient.putItem(
+                PutItemRequest.builder().tableName(tableName).item(updated.toItem()).build());
     }
 
     List<UnitRecord> listAllUnits() {
