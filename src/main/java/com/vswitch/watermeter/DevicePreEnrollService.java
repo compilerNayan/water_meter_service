@@ -20,15 +20,18 @@ public class DevicePreEnrollService {
 
     private final DynamoDbClient dynamoDbClient;
     private final UserService userService;
+    private final PreEnrollRepository preEnrollRepository;
     private final String tableName;
 
     DevicePreEnrollService(
             DynamoDbClient dynamoDbClient,
             UserService userService,
+            PreEnrollRepository preEnrollRepository,
             @Value("${pre.enroll.table.name:WaterMeterDevicePreEnrollments}")
                     String tableName) {
         this.dynamoDbClient = dynamoDbClient;
         this.userService = userService;
+        this.preEnrollRepository = preEnrollRepository;
         this.tableName = tableName;
     }
 
@@ -76,6 +79,29 @@ public class DevicePreEnrollService {
 
         return new DevicePreEnrollResponse(
                 tenantId, serialNumber, STATUS_PENDING, expiresAt.toString());
+    }
+
+    DeviceTenantLookupResponse lookupTenantBySerial(String serialNumber) {
+        if (serialNumber == null || serialNumber.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "serialNumber is required");
+        }
+
+        DevicePreEnrollRecord record =
+                preEnrollRepository
+                        .findBySerialNumber(serialNumber.trim())
+                        .orElseThrow(
+                                () ->
+                                        new ResponseStatusException(
+                                                HttpStatus.NOT_FOUND,
+                                                "Serial number not found"));
+
+        if (record.tenantId() == null || record.tenantId().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND, "Tenant not found for serial number");
+        }
+
+        return new DeviceTenantLookupResponse(record.serialNumber(), record.tenantId());
     }
 
     private void validateRequest(DevicePreEnrollRequest request) {

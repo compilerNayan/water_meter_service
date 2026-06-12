@@ -15,6 +15,7 @@ Spring Boot REST API packaged for AWS Lambda behind API Gateway.
 | POST | `/tenants/{tenantId}/building` | Cognito JWT (owner) | Save building name + structure; completes onboarding |
 | PUT | `/tenants/{tenantId}/structure` | Cognito JWT (owner) | Update building layout |
 | POST | `/tenants/{tenantId}/devices/pre-enroll` | Cognito JWT | Reserve device serial for tenant (pending enrollment) |
+| GET | `/devices/{serialNumber}/tenant` | No | Resolve tenant for serial (fleet provisioning) |
 | POST | `/tenants/{tenantId}/units` | Cognito JWT | Create unit with metadata after enrollment starts |
 | GET | `/tenants/{tenantId}/units` | Cognito JWT | List units for tenant |
 | GET | `/tenants/{tenantId}/devices/{deviceId}/enrollment-status` | Cognito JWT | Enrollment completion (placeholder) |

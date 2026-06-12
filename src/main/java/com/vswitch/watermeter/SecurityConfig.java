@@ -20,7 +20,7 @@ public class SecurityConfig {
                         session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(
                         auth ->
-                                auth.requestMatchers("/test/**", "/testlamda")
+                                auth.requestMatchers("/test/**", "/testlamda", "/devices/*/tenant")
                                         .permitAll()
                                         .requestMatchers(
                                                 "/users/**",
