@@ -21,13 +21,18 @@ class IotMqttIngestionServiceTest {
     @Mock private DeviceFacade deviceFacade;
     @Mock private EnrollmentCompletionService enrollmentCompletionService;
 
+    private DeviceMqttResponseTracker responseTracker;
     private IotMqttIngestionService service;
 
     @BeforeEach
     void setUp() {
+        responseTracker = new DeviceMqttResponseTracker();
         service =
                 new IotMqttIngestionService(
-                        deviceFacade, enrollmentCompletionService, new ObjectMapper());
+                        deviceFacade,
+                        enrollmentCompletionService,
+                        responseTracker,
+                        new ObjectMapper());
     }
 
     @Test
@@ -35,7 +40,7 @@ class IotMqttIngestionServiceTest {
         service.handleEvent(
                 Map.of(
                         "mqttTopic",
-                        "vswitch/water/k3m9x2a/WM000001/lifecycle/enrolled",
+                        "k3m9x2a/water_meter/WM000001/lifecycle/enrolled",
                         "tenantId",
                         "k3m9x2a",
                         "deviceId",
@@ -50,11 +55,11 @@ class IotMqttIngestionServiceTest {
     }
 
     @Test
-    void routesSecondPulse() {
+    void routesWater1sPulse() {
         service.handleEvent(
                 Map.of(
                         "mqttTopic",
-                        "vswitch/water/k3m9x2a/WM000001/telemetry/second",
+                        "k3m9x2a/water_meter/WM000001/water/1s",
                         "ts",
                         "2026-06-09T10:30:05Z",
                         "ml",
@@ -66,5 +71,24 @@ class IotMqttIngestionServiceTest {
                         eq("WM000001"),
                         eq(Instant.parse("2026-06-09T10:30:05Z")),
                         eq(45.0));
+    }
+
+    @Test
+    void routesStatusResponseToPendingCommandAndValveIngest() {
+        var pending =
+                responseTracker.beginAwaitingResponse("k3m9x2a", "WM000001");
+
+        service.handleEvent(
+                Map.of(
+                        "mqttTopic",
+                        "k3m9x2a/water_meter/WM000001/status",
+                        "payload",
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n"
+                                + "{\"targetPressurePercent\":80,\"actualPressurePercent\":78}"));
+
+        verify(deviceFacade).ingestValveStateReport("k3m9x2a", "WM000001", 80.0, 78.0);
+
+        org.junit.jupiter.api.Assertions.assertEquals(
+                80, ((Number) pending.join().get("targetPressurePercent")).intValue());
     }
 }

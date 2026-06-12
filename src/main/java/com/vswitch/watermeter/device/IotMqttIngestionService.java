@@ -2,6 +2,7 @@ package com.vswitch.watermeter.device;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -20,19 +21,23 @@ public class IotMqttIngestionService {
 
     private final DeviceFacade deviceFacade;
     private final EnrollmentCompletionService enrollmentCompletionService;
+    private final DeviceMqttResponseTracker responseTracker;
     private final ObjectMapper objectMapper;
 
     IotMqttIngestionService(
             DeviceFacade deviceFacade,
             EnrollmentCompletionService enrollmentCompletionService,
+            DeviceMqttResponseTracker responseTracker,
             ObjectMapper objectMapper) {
         this.deviceFacade = deviceFacade;
         this.enrollmentCompletionService = enrollmentCompletionService;
+        this.responseTracker = responseTracker;
         this.objectMapper = objectMapper;
     }
 
     public void handleEvent(Map<String, Object> event) {
-        String topic = stringField(event, "mqttTopic", "topic");
+        Map<String, Object> normalized = normalizeEvent(event);
+        String topic = stringField(normalized, "mqttTopic", "topic");
         if (topic == null || topic.isBlank()) {
             log.warn("MQTT event missing topic field");
             return;
@@ -46,11 +51,33 @@ public class IotMqttIngestionService {
                                                 "Unrecognized MQTT topic: " + topic));
 
         switch (parsed.suffix()) {
-            case "lifecycle/enrolled" -> handleEnrolled(parsed, event);
-            case "telemetry/second" -> handleSecondPulse(parsed, event);
-            case "telemetry/bucket/30m" -> handleThirtyMinuteBucket(parsed, event);
-            case "state/valve" -> handleValveState(parsed, event);
+            case DeviceMqttTopics.SUFFIX_LIFECYCLE_ENROLLED -> handleEnrolled(parsed, normalized);
+            case DeviceMqttTopics.SUFFIX_WATER_1S -> handleSecondPulse(parsed, normalized);
+            case DeviceMqttTopics.SUFFIX_WATER_30M -> handleThirtyMinuteBucket(parsed, normalized);
+            case DeviceMqttTopics.SUFFIX_STATUS -> handleStatusResponse(parsed, normalized);
             default -> log.debug("Ignoring MQTT topic suffix {}", parsed.suffix());
+        }
+    }
+
+    private Map<String, Object> normalizeEvent(Map<String, Object> event) {
+        if (event == null) {
+            return Map.of();
+        }
+        String payloadBase64 = stringField(event, "payloadBase64");
+        if (payloadBase64 == null) {
+            return event;
+        }
+
+        Map<String, Object> merged = new HashMap<>(event);
+        String decoded = DeviceMqttHttpPayloadParser.decodeBase64(payloadBase64);
+        try {
+            Map<String, Object> json =
+                    objectMapper.readValue(decoded, new TypeReference<Map<String, Object>>() {});
+            merged.putAll(json);
+            return merged;
+        } catch (Exception ignored) {
+            merged.put("payload", decoded);
+            return merged;
         }
     }
 
@@ -120,22 +147,41 @@ public class IotMqttIngestionService {
         }
     }
 
-    private void handleValveState(MqttTopicParser.ParsedMqttTopic parsed, Map<String, Object> event) {
-        String tenantId = parsed.tenantId();
-        String deviceId = parsed.deviceId();
-        double target =
-                firstPresentDouble(
-                        event,
-                        "target",
+    private void handleStatusResponse(
+            MqttTopicParser.ParsedMqttTopic parsed, Map<String, Object> event) {
+        Map<String, Object> responseBody =
+                DeviceMqttHttpPayloadParser.parseJsonBody(event, objectMapper);
+
+        responseTracker.completeResponse(parsed.tenantId(), parsed.deviceId(), responseBody);
+
+        if (hasValveFields(responseBody)) {
+            double target =
+                    firstPresentDouble(
+                            responseBody,
+                            "targetPressurePercent",
+                            "target",
+                            "valveTargetPercent");
+            double actual =
+                    firstPresentDouble(
+                            responseBody,
+                            "actualPressurePercent",
+                            "actual",
+                            "valveActualPercent");
+            deviceFacade.ingestValveStateReport(
+                    parsed.tenantId(), parsed.deviceId(), target, actual);
+        }
+    }
+
+    private static boolean hasValveFields(Map<String, Object> payload) {
+        return firstPresentKey(
+                        payload,
                         "targetPressurePercent",
-                        "valveTargetPercent");
-        double actual =
-                firstPresentDouble(
-                        event,
-                        "actual",
+                        "target",
+                        "valveTargetPercent",
                         "actualPressurePercent",
-                        "valveActualPercent");
-        deviceFacade.ingestValveStateReport(tenantId, deviceId, target, actual);
+                        "actual",
+                        "valveActualPercent")
+                != null;
     }
 
     private static String stringField(Map<String, Object> event, String... keys) {
@@ -167,12 +213,20 @@ public class IotMqttIngestionService {
     }
 
     private static double firstPresentDouble(Map<String, Object> event, String... keys) {
+        String key = firstPresentKey(event, keys);
+        if (key == null) {
+            return 0.0;
+        }
+        return doubleField(event, key);
+    }
+
+    private static String firstPresentKey(Map<String, Object> event, String... keys) {
         for (String key : keys) {
             if (event.containsKey(key) && event.get(key) != null) {
-                return doubleField(event, key);
+                return key;
             }
         }
-        return 0.0;
+        return null;
     }
 
     private static String firstNonBlank(String primary, String fallback) {

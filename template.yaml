@@ -251,7 +251,7 @@ Resources:
       RuleName: WaterMeterDeviceMqttIngest
       TopicRulePayload:
         AwsIotSqlVersion: "2016-03-23"
-        Sql: "SELECT topic() as mqttTopic, * FROM 'vswitch/water/#'"
+        Sql: "SELECT topic() as mqttTopic, encode(*, 'base64') as payloadBase64 FROM '+/water_meter/#'"
         Actions:
           - Lambda:
               FunctionArn: !GetAtt DeviceMqttIngestionFunction.Arn
