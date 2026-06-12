@@ -3,6 +3,7 @@ package com.vswitch.watermeter.device;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 
 import javax.net.ssl.SSLSocketFactory;
 
@@ -17,24 +18,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 @Component
 public class DeviceMqttClient implements MqttCallback {
 
     private static final Logger log = LoggerFactory.getLogger(DeviceMqttClient.class);
     private static final int QOS = 1;
 
-    private final DeviceMqttResponseTracker responseTracker;
-    private final ObjectMapper objectMapper;
     private final Object connectionLock = new Object();
 
-    private final Set<String> subscribedTopics = ConcurrentHashMap.newKeySet();
+    private final Set<String> desiredSubscriptions = ConcurrentHashMap.newKeySet();
+    private volatile BiConsumer<String, byte[]> inboundMessageHandler;
     private MqttClient client;
 
-    DeviceMqttClient(DeviceMqttResponseTracker responseTracker, ObjectMapper objectMapper) {
-        this.responseTracker = responseTracker;
-        this.objectMapper = objectMapper;
+    void setInboundMessageHandler(BiConsumer<String, byte[]> handler) {
+        this.inboundMessageHandler = handler;
     }
 
     void publish(String topic, String payload) {
@@ -49,17 +46,24 @@ public class DeviceMqttClient implements MqttCallback {
         }
     }
 
-    void ensureSubscribed(String topic) {
+    void ensureSubscribed(String topicFilter) {
+        desiredSubscriptions.add(topicFilter);
         ensureConnected();
-        if (!subscribedTopics.add(topic)) {
-            return;
-        }
+        subscribeTopicFilter(topicFilter);
+    }
+
+    private void subscribeTopicFilter(String topicFilter) {
         try {
-            client.subscribe(topic, QOS);
-            log.info("Subscribed to MQTT topic {}", topic);
+            client.subscribe(topicFilter, QOS);
+            log.info("Subscribed to MQTT topic filter {}", topicFilter);
         } catch (MqttException e) {
-            subscribedTopics.remove(topic);
-            throw new IllegalStateException("Failed to subscribe to MQTT topic " + topic, e);
+            throw new IllegalStateException("Failed to subscribe to MQTT topic filter " + topicFilter, e);
+        }
+    }
+
+    private void resubscribeAll() {
+        for (String topicFilter : desiredSubscriptions) {
+            subscribeTopicFilter(topicFilter);
         }
     }
 
@@ -100,7 +104,7 @@ public class DeviceMqttClient implements MqttCallback {
             options.setKeepAliveInterval(60);
 
             client.connect(options);
-            subscribedTopics.clear();
+            resubscribeAll();
             log.info("Connected to AWS IoT MQTT broker {}", brokerHost);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to connect to AWS IoT MQTT broker", e);
@@ -129,27 +133,21 @@ public class DeviceMqttClient implements MqttCallback {
 
     @Override
     public void connectionLost(Throwable cause) {
-        log.warn("MQTT connection lost", cause);
-        subscribedTopics.clear();
+        log.warn("MQTT connection lost; will resubscribe on reconnect", cause);
     }
 
     @Override
     public void messageArrived(String topic, MqttMessage message) throws Exception {
-        MqttTopicParser.parse(topic)
-                .filter(parsed -> DeviceMqttTopics.SUFFIX_STATUS.equals(parsed.suffix()))
-                .ifPresent(
-                        parsed -> {
-                            String payload =
-                                    new String(
-                                            message.getPayload(),
-                                            java.nio.charset.StandardCharsets.UTF_8);
-                            log.debug("MQTT status message on {}: {}", topic, payload);
-                            var responseBody =
-                                    DeviceMqttHttpPayloadParser.parseJsonBody(
-                                            java.util.Map.of("payload", payload), objectMapper);
-                            responseTracker.completeResponse(
-                                    parsed.tenantId(), parsed.deviceId(), responseBody);
-                        });
+        BiConsumer<String, byte[]> handler = inboundMessageHandler;
+        if (handler == null) {
+            log.debug("Ignoring MQTT message on {} (no inbound handler registered)", topic);
+            return;
+        }
+        try {
+            handler.accept(topic, message.getPayload());
+        } catch (Exception e) {
+            log.error("Failed to process MQTT message on {}", topic, e);
+        }
     }
 
     @Override

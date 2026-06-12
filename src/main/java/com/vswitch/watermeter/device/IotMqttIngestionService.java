@@ -35,6 +35,24 @@ public class IotMqttIngestionService {
         this.objectMapper = objectMapper;
     }
 
+    public void handleMqttMessage(String topic, byte[] payloadBytes) {
+        String body = new String(payloadBytes, java.nio.charset.StandardCharsets.UTF_8);
+        Map<String, Object> event = new HashMap<>();
+        event.put("mqttTopic", topic);
+        try {
+            Map<String, Object> json =
+                    objectMapper.readValue(body, new TypeReference<Map<String, Object>>() {});
+            event.putAll(json);
+        } catch (Exception ignored) {
+            event.put("payload", body);
+        }
+        try {
+            handleEvent(event);
+        } catch (Exception e) {
+            log.error("Failed to ingest MQTT message on topic {}", topic, e);
+        }
+    }
+
     public void handleEvent(Map<String, Object> event) {
         Map<String, Object> normalized = normalizeEvent(event);
         String topic = stringField(normalized, "mqttTopic", "topic");
@@ -44,11 +62,11 @@ public class IotMqttIngestionService {
         }
 
         MqttTopicParser.ParsedMqttTopic parsed =
-                MqttTopicParser.parse(topic)
-                        .orElseThrow(
-                                () ->
-                                        new IllegalArgumentException(
-                                                "Unrecognized MQTT topic: " + topic));
+                MqttTopicParser.parse(topic).orElse(null);
+        if (parsed == null) {
+            log.debug("Ignoring unrecognized MQTT topic {}", topic);
+            return;
+        }
 
         switch (parsed.suffix()) {
             case DeviceMqttTopics.SUFFIX_LIFECYCLE_ENROLLED -> handleEnrolled(parsed, normalized);

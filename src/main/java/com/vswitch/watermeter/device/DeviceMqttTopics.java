@@ -10,6 +10,9 @@ public final class DeviceMqttTopics {
     public static final String SUFFIX_WATER_30M = "water/30m";
     public static final String SUFFIX_LIFECYCLE_ENROLLED = "lifecycle/enrolled";
 
+    /** Subscribe filter for all water meter device topics. */
+    public static final String ALL_WATER_METERS_SUBSCRIBE_FILTER = "+/water_meter/#";
+
     private DeviceMqttTopics() {}
 
     public static String prefix(String tenantId, String deviceId) {

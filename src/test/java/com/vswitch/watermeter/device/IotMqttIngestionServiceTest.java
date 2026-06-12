@@ -74,6 +74,20 @@ class IotMqttIngestionServiceTest {
     }
 
     @Test
+    void ingestsFromRawMqttMessage() {
+        service.handleMqttMessage(
+                "k3m9x2a/water_meter/WM000001/water/1s",
+                "{\"ts\":\"2026-06-09T10:30:05Z\",\"ml\":45}".getBytes());
+
+        verify(deviceFacade)
+                .ingestSecondPulse(
+                        eq("k3m9x2a"),
+                        eq("WM000001"),
+                        eq(Instant.parse("2026-06-09T10:30:05Z")),
+                        eq(45.0));
+    }
+
+    @Test
     void routesStatusResponseToPendingCommandAndValveIngest() {
         var pending =
                 responseTracker.beginAwaitingResponse("k3m9x2a", "WM000001");
